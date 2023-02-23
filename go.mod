@@ -1,20 +1,18 @@
 module github.com/ccfish86/fizz/v2
 
-go 1.17
+go 1.18
 
 require (
 	github.com/Pallinder/go-randomdata v1.2.0
-	github.com/gin-contrib/cors v1.3.0
+	github.com/gin-contrib/cors v1.3.1
 	github.com/gin-gonic/gin v1.8.1
-	github.com/gofrs/uuid v3.2.0+incompatible
+	github.com/gofrs/uuid v4.2.0+incompatible
 	github.com/juju/errors v0.0.0-20220622220526-54a94488269b
-	github.com/stretchr/testify v1.7.2
-	github.com/wI2L/fizz v0.22.0
+	github.com/mcorbin/gadgeto v0.12.0
+	github.com/stretchr/testify v1.8.0
 	golang.org/x/text v0.3.7
 	gopkg.in/yaml.v2 v2.4.0
 )
-
-require github.com/mcorbin/gadgeto v0.12.0
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -38,6 +36,9 @@ require (
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/go-playground/validator.v9 v9.30.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	golang.org/x/sys v0.0.0-20220702020025-31831981b65f // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 retract (
@@ -46,3 +47,5 @@ retract (
 	// Incorrect operation's path
 	v2.0.2
 )
+
+

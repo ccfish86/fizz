@@ -1,6 +1,14 @@
 
 <h1 align="center">Fizz</h1>
-<p align="center"><img src="images/lemon.png" height="200px" width="auto" alt="Gin Fizz"></p><p align="center">Fizz is a wrapper for <strong>Gin</strong> based on <strong><a href="https://github.com/loopfz/gadgeto/tree/master/tonic">gadgeto/tonic</a></strong>.</p>
+<p align="center"><img src="images/lemon.png" height="200px" width="auto" alt="Gin Fizz"></p>
+
+This repository is a fork of [wl2L/fizz](https://github.com/wI2L/fizz) which contain additional capabilities.
+
+It's also based on my [Tonic](https://github.com/mcorbin/gadgeto/) fork which contain several improvements.
+
+## README
+
+<p align="center">Fizz is a wrapper for <strong>Gin</strong> based on <strong><a href="https://github.com/loopfz/gadgeto/tree/master/tonic">gadgeto/tonic</a></strong>.</p>
 <p align="center">It generates wrapping gin-compatible handlers that do all the repetitive work and wrap the call to your handlers. It can also generates an <i>almost</i> complete <strong>OpenAPI 3</strong> specification of your API.</p>
 <p align="center">
    <a href="https://pkg.go.dev/github.com/wI2L/fizz?tab=doc"><img src="https://img.shields.io/static/v1?label=godev&message=reference&color=00add8&logo=go"></a>
