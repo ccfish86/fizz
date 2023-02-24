@@ -24,7 +24,7 @@ func AddUIHandler(ginEngine *gin.Engine, path string, openApiJsonPath string) {
 	configPath, _ := url.JoinPath(path, "v3/api-docs/swagger-config")
 	ginEngine.GET(configPath, func(c *gin.Context) {
 		c.JSON(200, &SwaggerConfig{ConfigUrl: configPath, DisplayRequestDuration: true, OperationsSorter: "method", Urls: &[]SwaggerUrl{
-			SwaggerUrl{
+			{
 				Url:  openApiJsonPath,
 				Name: "default",
 			},
