@@ -18,7 +18,7 @@ var statics embed.FS
 var docHtml []byte
 
 // AddUIHandler adds handler that serves html for Swagger UI
-func AddUIHandler(ginEngine *gin.Engine, path string, openApiJsonPath string) {
+func AddUIHandler(ginEngine gin.IRoutes, path string, openApiJsonPath string) {
 
 	// for `v3/api-docs/swagger-config`, as springdoc
 	configPath, _ := url.JoinPath(path, "v3/api-docs/swagger-config")
@@ -69,7 +69,7 @@ func AddUIHandler(ginEngine *gin.Engine, path string, openApiJsonPath string) {
 }
 
 // AddUIGroupHandler adds handler that serves html for Swagger UI
-func AddUIGroupHandler(ginEngine *gin.Engine, path string, groups ...SwaggerUrl) {
+func AddUIGroupHandler(ginEngine gin.IRoutes, path string, groups ...SwaggerUrl) {
 
 	if len(groups) == 0 {
 		return
