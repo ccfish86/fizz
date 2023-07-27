@@ -26,7 +26,7 @@ const (
 var (
 	paramsInPathRe = regexp.MustCompile(`\{(.*?)\}`)
 	ginPathParamRe = regexp.MustCompile(`\/:([^\/]*)`)
-	refRe          = regexp.MustCompile("[\\[\\]\\.]|(\\w+(-\\w+)?/)") // Replace all words that do not conform [RFC3986-compliant]
+	refRe          = regexp.MustCompile("[\\[\\]\\.\\*]|(\\w+(-\\w+)?/)") // Replace all words that do not conform [RFC3986-compliant]
 )
 
 // mediaTags maps media types to well-known
@@ -965,7 +965,9 @@ func (g *Generator) newSchemaFromStruct(t reflect.Type, mediaType string) *Schem
 	if t.Kind() != reflect.Struct {
 		return nil
 	}
-	name := refRe.ReplaceAllString(g.typeName(t), "")
+
+	typeName := g.typeName(t)
+	name := refRe.ReplaceAllString(strings.Replace(typeName, "[]", "Array", 1), "")
 
 	// If the type of the field has already been registered,
 	// skip the schema generation to avoid a recursive loop.
