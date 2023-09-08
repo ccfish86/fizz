@@ -427,7 +427,7 @@ func TestNewSchemaFromEnumField(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(tt.fname, func(t *testing.T) {
-			sor := g.newSchemaFromStructField(typ.Field(i), true, tt.fname, typ)
+			sor := g.newSchemaFromStructField(typ.Field(i), true, tt.fname, typ, tonic.MediaType())
 			assert.NotNil(t, sor)
 			var enum []interface{}
 			if tt.isSlice {
