@@ -88,6 +88,7 @@ type SpecGenConfig struct {
 	ValidatorTag      string
 	PathLocationTag   string
 	QueryLocationTag  string
+	FormLocationTag   string
 	HeaderLocationTag string
 	EnumTag           string
 	DefaultTag        string
@@ -723,6 +724,7 @@ func (g *Generator) paramLocation(f reflect.StructField, in reflect.Type) (strin
 	parameterLocations := []string{
 		g.config.PathLocationTag,
 		g.config.QueryLocationTag,
+		g.config.FormLocationTag,
 		g.config.HeaderLocationTag,
 	}
 	for i, n := range parameterLocations {

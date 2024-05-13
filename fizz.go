@@ -64,6 +64,7 @@ func NewFromEngine(e *gin.Engine) *Fizz {
 			ValidatorTag:      tonic.ValidationTag,
 			PathLocationTag:   tonic.PathTag,
 			QueryLocationTag:  tonic.QueryTag,
+			FormLocationTag:   "form",
 			HeaderLocationTag: tonic.HeaderTag,
 			EnumTag:           tonic.EnumTag,
 			DefaultTag:        tonic.DefaultTag,
