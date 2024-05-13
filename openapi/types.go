@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"fmt"
+	"mime/multipart"
 	"net"
 	"net/url"
 	"reflect"
@@ -22,6 +23,7 @@ var (
 	tofNetIP          = reflect.TypeOf(net.IP{})
 	tofNetURL         = reflect.TypeOf(url.URL{})
 	tofEmptyInterface = reflect.TypeOf(new(interface{})).Elem()
+	tofFileHeader     = reflect.TypeOf(multipart.FileHeader{})
 
 	// Imported.
 	tofUUID = reflect.TypeOf(uuid.UUID{})
@@ -96,6 +98,9 @@ const (
 	// Imported data types.
 	TypeUUID
 
+	// File data types.
+	TypeFile
+
 	TypeUnsupported
 )
 
@@ -151,6 +156,8 @@ func DataTypeFromType(t reflect.Type) DataType {
 		return TypeURL
 	case tofEmptyInterface:
 		return TypeAny
+	case tofFileHeader:
+		return TypeFile
 	}
 	// Treat imported types.
 	if dt := isImportedType(t); dt != nil {
@@ -258,6 +265,7 @@ var types = [...]string{
 	TypePassword: "string",
 	TypeComplex:  "string",
 	TypeUUID:     "string",
+	TypeFile:     "file",
 }
 
 var formats = [...]string{
@@ -277,4 +285,5 @@ var formats = [...]string{
 	TypePassword: "password",
 	TypeComplex:  "",
 	TypeUUID:     "uuid",
+	TypeFile:     "binary",
 }

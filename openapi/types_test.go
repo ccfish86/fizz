@@ -135,6 +135,7 @@ func TestInternalDataTypeStringer(t *testing.T) {
 		TypePassword,
 		TypeComplex,
 		TypeBoolean,
+		TypeFile,
 		TypeUnsupported,
 	} {
 		s, ss := dt.String(), datatypes[dt]
