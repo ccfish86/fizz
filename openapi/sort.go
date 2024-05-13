@@ -7,6 +7,7 @@ var locationsOrder = map[string]int{
 	"query":  1,
 	"header": 2,
 	"cookie": 3,
+	"form":   4,
 }
 
 type paramLessFunc func(p1, p2 *ParameterOrRef) bool

@@ -458,7 +458,7 @@ func (g *Generator) setOperationParams(op *Operation, t, parent reflect.Type, al
 			mt = anyMediaType
 		}
 		sch := op.RequestBody.Content[mt].Schema
-		if sch != nil {
+		if sch != nil && !isMultipartFormData(requestMediaType) {
 			name := strings.Title(op.ID) + "Input"
 			g.api.Components.Schemas[name] = sch
 			op.RequestBody.Content[mt].Schema = &SchemaOrRef{Reference: &Reference{
@@ -509,7 +509,7 @@ func (g *Generator) buildParamsRecursive(op *Operation, t, parent reflect.Type, 
 		isUnexported := sf.PkgPath != ""
 
 		if sf.Anonymous {
-			if isUnexported && sft.Kind() != reflect.Struct {
+			if isUnexported && sft.Kind() != reflect.Struct || isMultipartFormData(requestMediaType) {
 				// Ignore embedded fields of unexported non-struct types.
 				continue
 			}
@@ -559,7 +559,7 @@ func (g *Generator) paramyByLocation(p1, p2 *ParameterOrRef) bool {
 func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx int, allowBody bool, requestMediaType string) error {
 	sf := t.Field(idx)
 
-	param, err := g.newParameterFromField(idx, t, requestMediaType)
+	param, location, err := g.newParameterFromField(idx, t, requestMediaType)
 	if err != nil {
 		return err
 	}
@@ -578,9 +578,37 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 				return nil
 			}
 		}
-		op.Parameters = append(op.Parameters, &ParameterOrRef{
-			Parameter: param,
-		})
+
+		if location == "form" && isMultipartFormData(requestMediaType) {
+			if op.RequestBody == nil {
+				op.RequestBody = &RequestBody{
+					Content: make(map[string]*MediaType),
+				}
+				schema := &Schema{
+					Type:       "object",
+					Properties: make(map[string]*SchemaOrRef),
+				}
+				op.RequestBody.Content[requestMediaType] = &MediaType{
+					Schema: &SchemaOrRef{Schema: schema},
+				}
+			}
+			if _, ok := op.RequestBody.Content[requestMediaType]; !ok {
+				schema := &Schema{
+					Type:       "object",
+					Properties: make(map[string]*SchemaOrRef),
+				}
+				op.RequestBody.Content[requestMediaType] = &MediaType{
+					Schema: &SchemaOrRef{Schema: schema},
+				}
+			}
+			op.RequestBody.Content[requestMediaType].Schema.Properties[param.Name] = &SchemaOrRef{
+				Schema: param.Schema.Schema,
+			}
+		} else {
+			op.Parameters = append(op.Parameters, &ParameterOrRef{
+				Parameter: param,
+			})
+		}
 	} else {
 		if !allowBody {
 			return nil
@@ -654,21 +682,21 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 // newParameterFromField create a new operation parameter
 // from the struct field at index idx in type in. Only the
 // parameters of type path, query, header or cookie are concerned.
-func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType string) (*Parameter, error) {
+func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType string) (*Parameter, string, error) {
 	field := t.Field(idx)
 
 	location, err := g.paramLocation(field, t)
 	if err != nil {
-		return nil, err
+		return nil, location, err
 	}
 	// The parameter location is empty, return nil
 	// to indicate that the field is not a parameter.
 	if location == "" {
-		return nil, nil
+		return nil, location, nil
 	}
 	name, err := tonic.ParseTagKey(field.Tag.Get(location))
 	if err != nil {
-		return nil, err
+		return nil, location, err
 	}
 	required := g.isStructFieldRequired(field)
 
@@ -702,7 +730,7 @@ func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType str
 			}
 		}
 	}
-	return p, nil
+	return p, location, nil
 }
 
 // paramLocation parses the tags of the struct field to extract
@@ -1312,4 +1340,9 @@ func parseExampleValue(t reflect.Type, value string) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unsuported type: %s", t.String())
 	}
+}
+
+// isMultipartFormData 是否表单
+func isMultipartFormData(mediaType string) bool {
+	return strings.HasPrefix(mediaType, "multipart/form-data")
 }

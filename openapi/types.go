@@ -265,7 +265,7 @@ var types = [...]string{
 	TypePassword: "string",
 	TypeComplex:  "string",
 	TypeUUID:     "string",
-	TypeFile:     "file",
+	TypeFile:     "string",
 }
 
 var formats = [...]string{
