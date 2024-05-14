@@ -685,7 +685,23 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType string) (*Parameter, string, error) {
 	field := t.Field(idx)
 
-	location, err := g.paramLocation(field, t)
+	var parameterLocations []string
+	if isMultipartFormData(mediaType) {
+		parameterLocations = []string{
+			g.config.PathLocationTag,
+			g.config.FormLocationTag,
+			g.config.QueryLocationTag,
+			g.config.HeaderLocationTag,
+		}
+	} else {
+		parameterLocations = []string{
+			g.config.PathLocationTag,
+			g.config.QueryLocationTag,
+			g.config.HeaderLocationTag,
+		}
+	}
+
+	location, err := g.paramLocation(field, parameterLocations, t)
 	if err != nil {
 		return nil, location, err
 	}
@@ -735,7 +751,7 @@ func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType str
 
 // paramLocation parses the tags of the struct field to extract
 // the location of an operation parameter.
-func (g *Generator) paramLocation(f reflect.StructField, in reflect.Type) (string, error) {
+func (g *Generator) paramLocation(f reflect.StructField, parameterLocations []string, in reflect.Type) (string, error) {
 	var c, p int
 
 	has := func(name string, tag reflect.StructTag, i int) {
@@ -745,15 +761,6 @@ func (g *Generator) paramLocation(f reflect.StructField, in reflect.Type) (strin
 			// the value of the unique key.
 			p = i
 		}
-	}
-	// Count the number of keys that represents
-	// a parameter location from the tag of the
-	// struct field.
-	parameterLocations := []string{
-		g.config.PathLocationTag,
-		g.config.QueryLocationTag,
-		g.config.FormLocationTag,
-		g.config.HeaderLocationTag,
 	}
 	for i, n := range parameterLocations {
 		has(n, f.Tag, i)
@@ -948,43 +955,61 @@ func (g *Generator) newSchemaFromType(t reflect.Type, mediaType string) *SchemaO
 // type t into subsequent schemas.
 func (g *Generator) buildSchemaRecursive(t reflect.Type, mediaType string) *SchemaOrRef {
 	schema := &Schema{}
-
-	switch t.Kind() {
-	case reflect.Ptr:
-		return g.buildSchemaRecursive(t.Elem(), mediaType)
-	case reflect.Struct:
-		return g.newSchemaFromStruct(t, mediaType)
-	case reflect.Map:
-		// Map type is considered as a type "object"
-		// and should declare underlying items type
-		// in additional properties field.
-		schema.Type = "object"
-
-		// JSON Schema allow only strings as object key.
-		if t.Key().Kind() != reflect.String {
-			g.error(&TypeError{
-				Message: "encountered type Map with keys of unsupported type",
-				Type:    t,
-			})
-			return nil
-		}
-		schema.AdditionalProperties = g.buildSchemaRecursive(t.Elem(), mediaType)
-	case reflect.Slice, reflect.Array:
-		// Slice/Array types are considered as a type
-		// "array" and should declare underlying items
-		// type in items field.
-		schema.Type = "array"
-
-		// Go arrays have fixed size.
-		if t.Kind() == reflect.Array {
-			schema.MinItems = t.Len()
-			schema.MaxItems = t.Len()
-		}
-		schema.Items = g.buildSchemaRecursive(t.Elem(), mediaType)
+	// Switch over Golang types.
+	switch t {
+	case tofTime:
+		schema.Type, schema.Format = TypeDateTime.Type(), TypeDateTime.Format()
+	case tofDuration:
+		schema.Type, schema.Format = TypeDuration.Type(), TypeDuration.Format()
+	case tofByteSlice:
+		schema.Type, schema.Format = TypeByte.Type(), TypeByte.Format()
+	case tofNetIP:
+		schema.Type, schema.Format = TypeIP.Type(), TypeIP.Format()
+	case tofNetURL:
+		schema.Type, schema.Format = TypeURL.Type(), TypeURL.Format()
+	case tofEmptyInterface:
+		schema.Type, schema.Format = TypeAny.Type(), TypeAny.Format()
+	case tofFileHeader:
+		schema.Type, schema.Format = TypeFile.Type(), TypeFile.Format()
 	default:
-		dt := g.datatype(t)
-		schema.Type, schema.Format = dt.Type(), dt.Format()
+		switch t.Kind() {
+		case reflect.Ptr:
+			return g.buildSchemaRecursive(t.Elem(), mediaType)
+		case reflect.Struct:
+			return g.newSchemaFromStruct(t, mediaType)
+		case reflect.Map:
+			// Map type is considered as a type "object"
+			// and should declare underlying items type
+			// in additional properties field.
+			schema.Type = "object"
+
+			// JSON Schema allow only strings as object key.
+			if t.Key().Kind() != reflect.String {
+				g.error(&TypeError{
+					Message: "encountered type Map with keys of unsupported type",
+					Type:    t,
+				})
+				return nil
+			}
+			schema.AdditionalProperties = g.buildSchemaRecursive(t.Elem(), mediaType)
+		case reflect.Slice, reflect.Array:
+			// Slice/Array types are considered as a type
+			// "array" and should declare underlying items
+			// type in items field.
+			schema.Type = "array"
+
+			// Go arrays have fixed size.
+			if t.Kind() == reflect.Array {
+				schema.MinItems = t.Len()
+				schema.MaxItems = t.Len()
+			}
+			schema.Items = g.buildSchemaRecursive(t.Elem(), mediaType)
+		default:
+			dt := g.datatype(t)
+			schema.Type, schema.Format = dt.Type(), dt.Format()
+		}
 	}
+
 	return &SchemaOrRef{Schema: schema}
 }
 

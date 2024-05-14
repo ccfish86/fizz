@@ -753,7 +753,12 @@ func TestParamLocationConflict(t *testing.T) {
 	}
 	g := gen(t)
 
-	_, err := g.paramLocation(reflect.TypeOf(T{}).Field(0), reflect.TypeOf(T{}))
+	parameterLocations := []string{
+		g.config.PathLocationTag,
+		g.config.QueryLocationTag,
+		g.config.HeaderLocationTag,
+	}
+	_, err := g.paramLocation(reflect.TypeOf(T{}).Field(0), parameterLocations, reflect.TypeOf(T{}))
 	assert.NotNil(t, err)
 }
 

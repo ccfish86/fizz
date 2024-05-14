@@ -246,6 +246,7 @@ var datatypes = [...]string{
 	TypeUnsupported: "Unsupported",
 	TypeComplex:     "Complex",
 	TypeUUID:        "UUID",
+	TypeFile:        "File",
 }
 
 var types = [...]string{
