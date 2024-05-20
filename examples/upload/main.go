@@ -120,37 +120,17 @@ func initAppUserRoutes(grp *fizz.RouterGroup) {
 		})
 	}))
 
-	// //  提交地址
-	// grp.POST("submit/address", []fizz.OperationOption{
-	// 	fizz.Summary("提交地址"),
-	// }, tonic.Handler(SubmitAddress, 200))
-
 }
 
+// UploadImage 文件上传
 func UploadImage(c *gin.Context, req *FileUploadReq) (versionUpResp HttpResult[FileUploadResp], err error) {
-
-	return
-}
-func MultiUploadImage(c *gin.Context, req *MultiFileUploadReq) (versionUpResp HttpResult[FileUploadResp], err error) {
-
 	return
 }
 
-func SubmitAddress(c *gin.Context, req *AddressReq) (versionUpResp HttpResult[AddressResp], err error) {
+// MultiUploadImage 多文件上传
+func MultiUploadImage(c *gin.Context, req *MultiFileUploadReq) (versionUpResp HttpResult[MultiFileUploadResp], err error) {
 
 	return
-}
-
-type AddressReq struct {
-	Province string `json:"province" form:"province"`
-	City     string `json:"city"`
-	Remark   string `query:"remark"`
-}
-
-type AddressResp struct {
-	ID       int    `json:"id"`
-	Province string `json:"province"`
-	City     string `json:"city"`
 }
 
 // FileUploadReq 文件上传结果
@@ -181,4 +161,9 @@ type HttpResult[T any] struct {
 type FileUploadResp struct {
 	Url   string `json:"url"`
 	State int8   `json:"state"`
+}
+
+// MultiFileUploadResp 多文件上传结果
+type MultiFileUploadResp struct {
+	Results []FileUploadResp `json:"results"`
 }
