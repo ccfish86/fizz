@@ -224,6 +224,9 @@ func stringToType(val string, t reflect.Type) (interface{}, error) {
 		return strconv.ParseUint(val, 10, t.Bits())
 	case reflect.Float32, reflect.Float64:
 		return strconv.ParseFloat(val, t.Bits())
+	case reflect.Ptr:
+		// Dereference the pointer.
+		return stringToType(val, t.Elem())
 	}
 	return nil, fmt.Errorf("unknown type %s", t.String())
 }
