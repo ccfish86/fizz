@@ -1,9 +1,11 @@
 package openapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -26,7 +28,7 @@ const (
 var (
 	paramsInPathRe = regexp.MustCompile(`\{(.*?)\}`)
 	ginPathParamRe = regexp.MustCompile(`\/:([^\/]*)`)
-	refRe          = regexp.MustCompile("[\\[\\]\\.\\*]|(\\w+(-\\w+)?/)") // Replace all words that do not conform [RFC3986-compliant]
+	refRe          = regexp.MustCompile(`[\[\]\.\*,]|(\w+(-\w+)?/)`) // Replace all words that do not conform [RFC3986-compliant]
 )
 
 // mediaTags maps media types to well-known
@@ -653,6 +655,9 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 
 		// Check if a field with the same name already exists.
 		if _, ok := schema.Properties[fname]; ok {
+			jsss, _ := json.Marshal(schema.Properties)
+			_ = os.WriteFile(fmt.Sprintf("d:\\test_%s.txt", fname), jsss, 0644)
+
 			g.error(&FieldError{
 				Message:           "duplicate request body parameter",
 				Name:              fname,
