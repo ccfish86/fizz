@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Pallinder/go-randomdata"
-	"github.com/mcorbin/gadgeto/tonic"
+	"github.com/ccfish86/gadgeto/tonic"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ccfish86/gadgeto/tonic"
 	"github.com/gofrs/uuid"
-	"github.com/mcorbin/gadgeto/tonic"
 )
 
 const (

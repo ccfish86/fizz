@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/ccfish86/gadgeto/tonic"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/mcorbin/gadgeto/tonic"
 
 	"github.com/ccfish86/fizz/v2"
 	"github.com/ccfish86/fizz/v2/openapi"

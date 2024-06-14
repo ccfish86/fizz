@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ccfish86/gadgeto/tonic"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
-	"github.com/mcorbin/gadgeto/tonic"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 
