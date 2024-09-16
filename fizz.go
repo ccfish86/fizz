@@ -46,7 +46,11 @@ type RouterGroup struct {
 	gen         *openapi.Generator
 	Name        string
 	Description string
+	postHandler PostHandlerFunc
 }
+
+// PostHandlerFunc is a function that is called after a handler is registered.
+type PostHandlerFunc func(method, path, summary, basePath, groupName, groupDescription string)
 
 // New creates a new Fizz wrapper for
 // a default Gin engine.
@@ -115,6 +119,7 @@ func (g *RouterGroup) Group(path, name, description string, handlers ...gin.Hand
 	return &RouterGroup{
 		gen:         g.gen,
 		group:       g.group.Group(path, handlers...),
+		postHandler: g.postHandler,
 		Name:        name,
 		Description: description,
 	}
@@ -247,8 +252,15 @@ func (g *RouterGroup) Handle(path, method string, infos []OperationOption, handl
 	}
 	// Register the handlers with Gin underlying group.
 	g.group.Handle(method, path, handlers...)
-
+	if g.postHandler != nil {
+		g.postHandler(method, path, oi.Summary, g.group.BasePath(), g.Name, g.Description)
+	}
 	return g
+}
+
+// PostHandler sets a function that is called after a handler is registered.
+func (g *RouterGroup) PostHandler(f PostHandlerFunc) {
+	g.postHandler = f
 }
 
 // OpenAPI returns a Gin HandlerFunc that serves
