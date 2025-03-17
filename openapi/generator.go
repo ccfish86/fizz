@@ -951,7 +951,19 @@ func (g *Generator) buildSchemaRecursive(t reflect.Type) *SchemaOrRef {
 			schema.MinItems = t.Len()
 			schema.MaxItems = t.Len()
 		}
-		schema.Items = g.buildSchemaRecursive(t.Elem())
+
+		// Handle special case for [12]byte which is ObjectID's underlying type
+		if t.Elem() == tofObjectID || (t.Kind() == reflect.Array && t.Elem().Kind() == reflect.Uint8 && t.Len() == 12) {
+			// For a MongoDB ObjectID, use a string schema with objectid format
+			schema.Items = &SchemaOrRef{
+				Schema: &Schema{
+					Type:   "string",
+					Format: "objectid",
+				},
+			}
+		} else {
+			schema.Items = g.buildSchemaRecursive(t.Elem())
+		}
 	default:
 		dt := g.datatype(t)
 		schema.Type, schema.Format = dt.Type(), dt.Format()

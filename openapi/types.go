@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var (
@@ -24,7 +25,8 @@ var (
 	tofEmptyInterface = reflect.TypeOf(new(interface{})).Elem()
 
 	// Imported.
-	tofUUID = reflect.TypeOf(uuid.UUID{})
+	tofUUID     = reflect.TypeOf(uuid.UUID{})
+	tofObjectID = reflect.TypeOf(primitive.ObjectID{})
 )
 
 var _ DataType = (*InternalDataType)(nil)
@@ -95,6 +97,7 @@ const (
 
 	// Imported data types.
 	TypeUUID
+	TypeObjectID
 
 	TypeUnsupported
 )
@@ -186,6 +189,10 @@ func isImportedType(t reflect.Type) DataType {
 	if t == tofUUID {
 		return TypeUUID
 	}
+	// go.mongodb.org/mongo-driver/bson/primitive
+	if t == tofObjectID {
+		return TypeObjectID
+	}
 	return nil
 }
 
@@ -200,6 +207,10 @@ func stringToType(val string, t reflect.Type) (interface{}, error) {
 	}
 	if t.AssignableTo(tofDuration) {
 		return time.ParseDuration(val)
+	}
+	// For ObjectID, just use the string representation
+	if t.AssignableTo(tofObjectID) {
+		return val, nil
 	}
 	switch t.Kind() {
 	case reflect.Bool:
@@ -239,6 +250,7 @@ var datatypes = [...]string{
 	TypeUnsupported: "Unsupported",
 	TypeComplex:     "Complex",
 	TypeUUID:        "UUID",
+	TypeObjectID:    "ObjectID",
 }
 
 var types = [...]string{
@@ -258,6 +270,7 @@ var types = [...]string{
 	TypePassword: "string",
 	TypeComplex:  "string",
 	TypeUUID:     "string",
+	TypeObjectID: "string",
 }
 
 var formats = [...]string{
@@ -277,4 +290,5 @@ var formats = [...]string{
 	TypePassword: "password",
 	TypeComplex:  "",
 	TypeUUID:     "uuid",
+	TypeObjectID: "objectid",
 }
