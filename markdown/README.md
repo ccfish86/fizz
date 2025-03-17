@@ -8,7 +8,7 @@ This is a simple builder to help you create **Mardown** content in Go.
 ## Usage
 
 ```go
-import "github.com/wI2L/fizz/markdown"
+import "github.com/crawlab-team/fizz/markdown"
 
 builder := markdown.Builder{}
 
