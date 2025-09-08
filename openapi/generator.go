@@ -1,11 +1,9 @@
 package openapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -655,9 +653,6 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 
 		// Check if a field with the same name already exists.
 		if _, ok := schema.Properties[fname]; ok {
-			jsss, _ := json.Marshal(schema.Properties)
-			_ = os.WriteFile(fmt.Sprintf("d:\\test_%s.txt", fname), jsss, 0644)
-
 			g.error(&FieldError{
 				Message:           "duplicate request body parameter",
 				Name:              fname,

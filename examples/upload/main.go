@@ -9,7 +9,7 @@ import (
 	"github.com/ccfish86/fizz/v2/ui"
 	"github.com/gin-gonic/gin"
 
-	"github.com/mcorbin/gadgeto/tonic"
+	"github.com/ccfish86/gadgeto/tonic"
 )
 
 func main() {

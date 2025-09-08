@@ -3,7 +3,7 @@ package fizz
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -237,7 +237,7 @@ func TestTonicHandler(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Error(err)
 			break
@@ -401,12 +401,12 @@ func TestSpecHandler(t *testing.T) {
 
 	assert.Equal(t, 200, respJSON.StatusCode)
 
-	specJSON, err := ioutil.ReadAll(respJSON.Body)
+	specJSON, err := io.ReadAll(respJSON.Body)
 	if err != nil {
 		t.Error(err)
 	}
 	// see testdata/spec.json.
-	expectedJSON, err := ioutil.ReadFile("testdata/spec.json")
+	expectedJSON, err := os.ReadFile("testdata/spec.json")
 	if err != nil {
 		t.Error(err)
 	}
@@ -426,12 +426,12 @@ func TestSpecHandler(t *testing.T) {
 
 	assert.Equal(t, 200, respYAML.StatusCode)
 
-	specYAML, err := ioutil.ReadAll(respYAML.Body)
+	specYAML, err := io.ReadAll(respYAML.Body)
 	if err != nil {
 		t.Error(err)
 	}
 	// see testdata/spec.yaml.
-	expectedYAML, err := ioutil.ReadFile("testdata/spec.yaml")
+	expectedYAML, err := os.ReadFile("testdata/spec.yaml")
 	if err != nil {
 		t.Error(err)
 	}
