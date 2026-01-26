@@ -244,8 +244,15 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 
 	if info != nil {
 		// Ensure that the provided operation ID is unique.
-		if _, ok := g.operationsIDS[info.ID]; ok {
-			return nil, fmt.Errorf("ID %s is already used by another operation", info.ID)
+		// If duplicate, append suffix to make it unique.
+		baseID := info.ID
+		counter := 0
+		for {
+			if _, ok := g.operationsIDS[info.ID]; !ok {
+				break
+			}
+			counter++
+			info.ID = fmt.Sprintf("%s_%d", baseID, counter)
 		}
 		g.operationsIDS[info.ID] = struct{}{}
 	}
