@@ -106,7 +106,10 @@ type Parameter struct {
 	AllowEmptyValue bool         `json:"allowEmptyValue,omitempty" yaml:"allowEmptyValue,omitempty"`
 	Schema          *SchemaOrRef `json:"schema,omitempty" yaml:"schema,omitempty"`
 	Style           string       `json:"style,omitempty" yaml:"style,omitempty"`
-	Explode         bool         `json:"explode,omitempty" yaml:"explode,omitempty"`
+	// Explode is a pointer so that an explicit false value
+	// is preserved: omitting the field would default it to
+	// true for the 'form' style.
+	Explode *bool `json:"explode,omitempty" yaml:"explode,omitempty"`
 }
 
 // ParameterOrRef represents a Parameter that can be inlined
@@ -153,9 +156,9 @@ type Schema struct {
 	// definition but their definitions were adjusted to the
 	// OpenAPI Specification.
 	Type                 string                  `json:"type,omitempty" yaml:"type,omitempty"`
-	AllOf                *SchemaOrRef            `json:"allOf,omitempty" yaml:"allOf,omitempty"`
-	OneOf                *SchemaOrRef            `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
-	AnyOf                *SchemaOrRef            `json:"anyOf,omitempty" yaml:"anyOf,omitempty"`
+	AllOf                []*SchemaOrRef          `json:"allOf,omitempty" yaml:"allOf,omitempty"`
+	OneOf                []*SchemaOrRef          `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
+	AnyOf                []*SchemaOrRef          `json:"anyOf,omitempty" yaml:"anyOf,omitempty"`
 	Items                *SchemaOrRef            `json:"items,omitempty" yaml:"items,omitempty"`
 	Properties           map[string]*SchemaOrRef `json:"properties,omitempty" yaml:"properties,omitempty"`
 	AdditionalProperties *SchemaOrRef            `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
@@ -273,7 +276,9 @@ func (ror *ResponseOrRef) MarshalYAML() (interface{}, error) {
 
 // Response describes a single response from an API.
 type Response struct {
-	Description string                     `json:"description,omitempty" yaml:"description,omitempty"`
+	// Description is required per the specification,
+	// hence the absence of 'omitempty'.
+	Description string                     `json:"description" yaml:"description"`
 	Headers     map[string]*HeaderOrRef    `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Content     map[string]*MediaTypeOrRef `json:"content,omitempty" yaml:"content,omitempty"`
 }

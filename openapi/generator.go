@@ -25,15 +25,16 @@ const (
 
 var (
 	paramsInPathRe = regexp.MustCompile(`\{(.*?)\}`)
-	ginPathParamRe = regexp.MustCompile(`\/:([^\/]*)`)
+	ginPathParamRe = regexp.MustCompile(`\/[:*]([^\/]*)`)
 	refRe          = regexp.MustCompile(`[\[\]\.\*,]|((Array)?\w+(-\w+)?/)`) // Replace all words that do not conform [RFC3986-compliant]
 )
 
 // mediaTags maps media types to well-known
 // struct tags used for marshaling.
 var mediaTags = map[string]string{
-	"application/json": "json",
-	"application/xml":  "xml",
+	"application/json":                  "json",
+	"application/xml":                   "xml",
+	"application/x-www-form-urlencoded": "form",
 }
 
 // Generator is an OpenAPI 3 generator.
@@ -237,24 +238,22 @@ func (g *Generator) AddTag(name, desc string) {
 // using the method and path of the route and the tonic
 // handler informations.
 func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMediaType string, in, out reflect.Type, info *OperationInfo) (*Operation, error) {
+	if info == nil {
+		return nil, errors.New("missing operation info")
+	}
 	op := &Operation{
 		ID: uuid.Must(uuid.NewV4()).String(),
 	}
 	path = rewritePath(path)
 
-	if info != nil {
-		// Ensure that the provided operation ID is unique.
-		// If duplicate, append suffix to make it unique.
-		baseID := info.ID
-		counter := 0
-		for {
-			if _, ok := g.operationsIDS[info.ID]; !ok {
-				break
-			}
-			counter++
-			info.ID = fmt.Sprintf("%s_%d", baseID, counter)
+	// Ensure that the provided operation ID is unique.
+	// A duplicate is an error, because the operation ID is
+	// used to identify the operation among all the operations
+	// described in the API.
+	if info.ID != "" {
+		if _, ok := g.operationsIDS[info.ID]; ok {
+			return nil, fmt.Errorf("operation ID %q is not unique", info.ID)
 		}
-		g.operationsIDS[info.ID] = struct{}{}
 	}
 	// If a PathItem does not exists for this
 	// path, create a new one.
@@ -263,18 +262,22 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 		item = new(PathItem)
 		g.api.Paths[path] = item
 	}
+	// An operation cannot be registered twice for the
+	// same method and path, silently overwriting the
+	// previous one would hide a configuration mistake.
+	if operationByMethod(item, method) != nil {
+		return nil, fmt.Errorf("operation %s %s already exists", method, path)
+	}
 	// Create a new operation and set it
 	// to the according method of the PathItem.
-	if info != nil {
-		op.ID = info.ID
-		op.Summary = info.Summary
-		op.Description = info.Description
-		op.Deprecated = info.Deprecated
-		op.Responses = make(Responses)
-		op.XCodeSamples = info.XCodeSamples
-		op.Security = info.Security
-		op.XInternal = info.XInternal
-	}
+	op.ID = info.ID
+	op.Summary = info.Summary
+	op.Description = info.Description
+	op.Deprecated = info.Deprecated
+	op.Responses = make(Responses)
+	op.XCodeSamples = info.XCodeSamples
+	op.Security = info.Security
+	op.XInternal = info.XInternal
 	if tag != "" {
 		op.Tags = append(op.Tags, tag)
 	}
@@ -318,6 +321,9 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 		}
 	}
 	setOperationBymethod(item, op, method)
+	if info.ID != "" {
+		g.operationsIDS[info.ID] = struct{}{}
+	}
 
 	return op, nil
 }
@@ -327,6 +333,30 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 // an OpenAPI representation that use curly braces.
 func rewritePath(path string) string {
 	return ginPathParamRe.ReplaceAllString(path, "/{$1}")
+}
+
+// operationByMethod returns the operation of item for the
+// given method, or nil if none is registered.
+func operationByMethod(item *PathItem, method string) *Operation {
+	switch method {
+	case "GET":
+		return item.GET
+	case "PUT":
+		return item.PUT
+	case "POST":
+		return item.POST
+	case "PATCH":
+		return item.PATCH
+	case "HEAD":
+		return item.HEAD
+	case "OPTIONS":
+		return item.OPTIONS
+	case "TRACE":
+		return item.TRACE
+	case "DELETE":
+		return item.DELETE
+	}
+	return nil
 }
 
 // setOperationBymethod sets the operation op to the appropriate
@@ -368,6 +398,19 @@ func isResponseCodeRange(code string) bool {
 	return true
 }
 
+// defaultResponseDescription returns a description for the given
+// response code when none is provided. The description of a
+// response is a mandatory property per the specification.
+func defaultResponseDescription(code string) string {
+	if code == "default" {
+		return "Default response"
+	}
+	if isResponseCodeRange(code) {
+		return code[:1] + "XX response"
+	}
+	return ""
+}
+
 // setOperationResponse adds a response to the operation that
 // return the type t with the given media type and status code.
 func (g *Generator) setOperationResponse(op *Operation, t reflect.Type, code, mt, desc string, headers []*ResponseHeader, example interface{}, examples map[string]interface{}) error {
@@ -397,6 +440,12 @@ func (g *Generator) setOperationResponse(op *Operation, t reflect.Type, code, mt
 				desc = http.StatusText(ci)
 			}
 		}
+	}
+	// The description of a response is mandatory per the
+	// specification, so provide a sensible default instead
+	// of marshaling an empty value.
+	if desc == "" {
+		desc = defaultResponseDescription(code)
 	}
 	r := &Response{
 		Description: desc,
@@ -744,13 +793,14 @@ func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType str
 	// Style.
 	if location == g.config.QueryLocationTag {
 		if field.Type.Kind() == reflect.Slice || field.Type.Kind() == reflect.Array {
-			p.Explode = true // default
-			p.Style = "form" // default in spec, but make it obvious
+			explode := true // default
 			if t := field.Tag.Get(tonic.ExplodeTag); t != "" {
-				if explode, err := strconv.ParseBool(t); err == nil && !explode { // ignore invalid values
-					p.Explode = explode
+				if v, err := strconv.ParseBool(t); err == nil { // ignore invalid values
+					explode = v
 				}
 			}
+			p.Explode = &explode
+			p.Style = "form" // default in spec, but make it obvious
 		}
 	}
 	return p, location, nil
@@ -802,6 +852,20 @@ func (g *Generator) newSchemaFromStructField(sf reflect.StructField, required bo
 
 	if schema == nil {
 		return sor
+	}
+	// A schema that references a shared component must not be
+	// modified in place, otherwise the field tags would leak to
+	// every other usage of this component in the specification.
+	// Wrap the reference in an allOf schema that carries the
+	// field-level overrides instead.
+	if sor.Reference != nil {
+		if !hasSchemaOverrides(sf, g.config) {
+			return sor
+		}
+		schema = &Schema{
+			AllOf: []*SchemaOrRef{{Reference: sor.Reference}},
+		}
+		sor = &SchemaOrRef{Schema: schema}
 	}
 	// Default value.
 	// See section 'Common Mistakes' at
@@ -1079,7 +1143,7 @@ func (g *Generator) flattenStructSchema(t, parent reflect.Type, schema *Schema, 
 			ft = ft.Elem()
 		}
 		isUnexported := f.PkgPath != ""
-		mediaTag := mediaTags[tonic.MediaType()]
+		mediaTag := mediaTags[mediaType]
 		_, hasTag := f.Tag.Lookup(mediaTag)
 
 		if f.Anonymous && !hasTag {
@@ -1296,6 +1360,30 @@ func (g *Generator) updateSchemaValidation(schema *Schema, sf reflect.StructFiel
 
 func (g *Generator) error(err error) {
 	g.errors = append(g.errors, err)
+}
+
+// hasSchemaOverrides returns whether the given struct field declares
+// tags that override the schema generated from its type.
+func hasSchemaOverrides(sf reflect.StructField, conf *SpecGenConfig) bool {
+	if sf.Tag.Get(conf.DefaultTag) != "" {
+		return true
+	}
+	if sf.Tag.Get(conf.EnumTag) != "" {
+		return true
+	}
+	if _, ok := sf.Tag.Lookup(descriptionTag); ok {
+		return true
+	}
+	if deprecated, _ := strconv.ParseBool(sf.Tag.Get(deprecatedTag)); deprecated {
+		return true
+	}
+	if _, ok := sf.Tag.Lookup(formatTag); ok {
+		return true
+	}
+	if strings.TrimSpace(sf.Tag.Get("example")) != "" {
+		return true
+	}
+	return false
 }
 
 // fieldTagName returns the name of a struct field

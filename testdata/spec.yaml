@@ -128,8 +128,6 @@ components:
   schemas:
     FizzCustomTime:
       type: object
-      description: This is Z
-      example: 2022-02-07T18:00:00
     FizzT:
       type: object
       properties:
@@ -141,7 +139,10 @@ components:
           description: This is Y
           format: int32
         z:
-          $ref: '#/components/schemas/FizzCustomTime'
+          allOf:
+          - $ref: '#/components/schemas/FizzCustomTime'
+          description: This is Z
+          example: 2022-02-07T18:00:00
     PostTestInput:
       type: object
       properties:
