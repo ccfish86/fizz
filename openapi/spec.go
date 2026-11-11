@@ -5,14 +5,15 @@ import "encoding/json"
 // OpenAPI represents the root document object of
 // an OpenAPI document.
 type OpenAPI struct {
-	OpenAPI    string                 `json:"openapi" yaml:"openapi"`
-	Info       *Info                  `json:"info" yaml:"info"`
-	Servers    []*Server              `json:"servers,omitempty" yaml:"servers,omitempty"`
-	Paths      Paths                  `json:"paths" yaml:"paths"`
-	Components *Components            `json:"components,omitempty" yaml:"components,omitempty"`
-	Tags       []*Tag                 `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Security   []*SecurityRequirement `json:"security,omitempty" yaml:"security,omitempty"`
-	XTagGroups []*XTagGroup           `json:"x-tagGroups,omitempty" yaml:"x-tagGroups,omitempty"`
+	OpenAPI      string                 `json:"openapi" yaml:"openapi"`
+	Info         *Info                  `json:"info" yaml:"info"`
+	Servers      []*Server              `json:"servers,omitempty" yaml:"servers,omitempty"`
+	Paths        Paths                  `json:"paths" yaml:"paths"`
+	Components   *Components            `json:"components,omitempty" yaml:"components,omitempty"`
+	Security     []*SecurityRequirement `json:"security,omitempty" yaml:"security,omitempty"`
+	Tags         []*Tag                 `json:"tags,omitempty" yaml:"tags,omitempty"`
+	ExternalDocs *ExternalDocs          `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	XTagGroups   []*XTagGroup           `json:"x-tagGroups,omitempty" yaml:"x-tagGroups,omitempty"`
 }
 
 // Components holds a set of reusable objects for different
@@ -22,8 +23,11 @@ type Components struct {
 	Responses       map[string]*ResponseOrRef       `json:"responses,omitempty" yaml:"responses,omitempty"`
 	Parameters      map[string]*ParameterOrRef      `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	Examples        map[string]*ExampleOrRef        `json:"examples,omitempty" yaml:"examples,omitempty"`
+	RequestBodies   map[string]*RequestBodyOrRef    `json:"requestBodies,omitempty" yaml:"requestBodies,omitempty"`
 	Headers         map[string]*HeaderOrRef         `json:"headers,omitempty" yaml:"headers,omitempty"`
 	SecuritySchemes map[string]*SecuritySchemeOrRef `json:"securitySchemes,omitempty" yaml:"securitySchemes,omitempty"`
+	Links           map[string]*LinkOrRef           `json:"links,omitempty" yaml:"links,omitempty"`
+	Callbacks       map[string]*CallbackOrRef       `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
 }
 
 // Info represents the metadata of an API.
@@ -50,6 +54,13 @@ type Contact struct {
 type License struct {
 	Name string `json:"name" yaml:"name"`
 	URL  string `json:"url,omitempty" yaml:"url,omitempty"`
+}
+
+// ExternalDocs allows referencing an external resource for
+// extended documentation.
+type ExternalDocs struct {
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	URL         string `json:"url" yaml:"url"`
 }
 
 // Server represents a server.
@@ -109,7 +120,11 @@ type Parameter struct {
 	// Explode is a pointer so that an explicit false value
 	// is preserved: omitting the field would default it to
 	// true for the 'form' style.
-	Explode *bool `json:"explode,omitempty" yaml:"explode,omitempty"`
+	Explode       *bool                    `json:"explode,omitempty" yaml:"explode,omitempty"`
+	AllowReserved bool                     `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
+	Example       interface{}              `json:"example,omitempty" yaml:"example,omitempty"`
+	Examples      map[string]*ExampleOrRef `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Content       map[string]*MediaType    `json:"content,omitempty" yaml:"content,omitempty"`
 }
 
 // ParameterOrRef represents a Parameter that can be inlined
@@ -127,11 +142,44 @@ func (por *ParameterOrRef) MarshalYAML() (interface{}, error) {
 	return por.Reference, nil
 }
 
+// MarshalJSON implements json.Marshaler for ParameterOrRef.
+// A reference must not be serialized alongside the fields of
+// an inlined parameter.
+func (por *ParameterOrRef) MarshalJSON() ([]byte, error) {
+	if por.Parameter != nil {
+		return json.Marshal(por.Parameter)
+	}
+	return json.Marshal(por.Reference)
+}
+
 // RequestBody represents a request body.
 type RequestBody struct {
 	Description string                `json:"description,omitempty" yaml:"description,omitempty"`
 	Content     map[string]*MediaType `json:"content" yaml:"content"`
 	Required    bool                  `json:"required,omitempty" yaml:"required,omitempty"`
+}
+
+// RequestBodyOrRef represents a RequestBody that can be inlined
+// or referenced in the API description.
+type RequestBodyOrRef struct {
+	*RequestBody
+	*Reference
+}
+
+// MarshalYAML implements yaml.Marshaler for RequestBodyOrRef.
+func (ror *RequestBodyOrRef) MarshalYAML() (interface{}, error) {
+	if ror.RequestBody != nil {
+		return ror.RequestBody, nil
+	}
+	return ror.Reference, nil
+}
+
+// MarshalJSON implements json.Marshaler for RequestBodyOrRef.
+func (ror *RequestBodyOrRef) MarshalJSON() ([]byte, error) {
+	if ror.RequestBody != nil {
+		return json.Marshal(ror.RequestBody)
+	}
+	return json.Marshal(ror.Reference)
 }
 
 // SchemaOrRef represents a Schema that can be inlined
@@ -159,6 +207,7 @@ type Schema struct {
 	AllOf                []*SchemaOrRef          `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 	OneOf                []*SchemaOrRef          `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
 	AnyOf                []*SchemaOrRef          `json:"anyOf,omitempty" yaml:"anyOf,omitempty"`
+	Not                  *SchemaOrRef            `json:"not,omitempty" yaml:"not,omitempty"`
 	Items                *SchemaOrRef            `json:"items,omitempty" yaml:"items,omitempty"`
 	Properties           map[string]*SchemaOrRef `json:"properties,omitempty" yaml:"properties,omitempty"`
 	AdditionalProperties *SchemaOrRef            `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
@@ -168,12 +217,14 @@ type Schema struct {
 	Example              interface{}             `json:"example,omitempty" yaml:"example,omitempty"`
 
 	// The following properties are taken directly from the
-	// JSON Schema definition and follow the same specifications
+	// JSON Schema definition and follow the same specifications.
+	// Numeric bounds are pointers so that a zero value is
+	// preserved and fractional values are supported.
 	Title            string        `json:"title,omitempty" yaml:"title,omitempty"`
-	MultipleOf       int           `json:"multipleOf,omitempty" yaml:"multipleOf,omitempty"`
-	Maximum          int           `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	MultipleOf       *float64      `json:"multipleOf,omitempty" yaml:"multipleOf,omitempty"`
+	Maximum          *float64      `json:"maximum,omitempty" yaml:"maximum,omitempty"`
 	ExclusiveMaximum bool          `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
-	Minimum          int           `json:"minimum,omitempty" yaml:"minimum,omitempty"`
+	Minimum          *float64      `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 	ExclusiveMinimum bool          `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
 	MaxLength        int           `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
 	MinLength        int           `json:"minLength,omitempty" yaml:"minLength,omitempty"`
@@ -187,38 +238,67 @@ type Schema struct {
 	Enum             []interface{} `json:"enum,omitempty" yaml:"enum,omitempty"`
 	Nullable         bool          `json:"nullable,omitempty" yaml:"nullable,omitempty"`
 	Deprecated       bool          `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+
+	// The following properties describe how the schema is used
+	// and how it is represented in XML payloads.
+	Discriminator *Discriminator `json:"discriminator,omitempty" yaml:"discriminator,omitempty"`
+	XML           *XML           `json:"xml,omitempty" yaml:"xml,omitempty"`
+	ExternalDocs  *ExternalDocs  `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ReadOnly      bool           `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	WriteOnly     bool           `json:"writeOnly,omitempty" yaml:"writeOnly,omitempty"`
+}
+
+// Discriminator is used to support polymorphism. The property
+// name refers to the property that holds the discriminator
+// value, and the mapping associates a value to a schema.
+type Discriminator struct {
+	PropertyName string            `json:"propertyName" yaml:"propertyName"`
+	Mapping      map[string]string `json:"mapping,omitempty" yaml:"mapping,omitempty"`
+}
+
+// XML represents the XML metadata of a schema.
+type XML struct {
+	Name      string `json:"name,omitempty" yaml:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Prefix    string `json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Attribute bool   `json:"attribute,omitempty" yaml:"attribute,omitempty"`
+	Wrapped   bool   `json:"wrapped,omitempty" yaml:"wrapped,omitempty"`
 }
 
 // Operation describes an API operation on a path.
 type Operation struct {
-	Tags         []string               `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Summary      string                 `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description  string                 `json:"description,omitempty" yaml:"description,omitempty"`
-	ID           string                 `json:"operationId,omitempty" yaml:"operationId,omitempty"`
-	Parameters   []*ParameterOrRef      `json:"parameters,omitempty" yaml:"parameters,omitempty"`
-	RequestBody  *RequestBody           `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
-	Responses    Responses              `json:"responses,omitempty" yaml:"responses,omitempty"`
-	Deprecated   bool                   `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
-	Servers      []*Server              `json:"servers,omitempty" yaml:"servers,omitempty"`
-	Security     []*SecurityRequirement `json:"security" yaml:"security"`
-	XCodeSamples []*XCodeSample         `json:"x-codeSamples,omitempty" yaml:"x-codeSamples,omitempty"`
-	XInternal    bool                   `json:"x-internal,omitempty" yaml:"x-internal,omitempty"`
+	Tags         []string                  `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Summary      string                    `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description  string                    `json:"description,omitempty" yaml:"description,omitempty"`
+	ExternalDocs *ExternalDocs             `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ID           string                    `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Parameters   []*ParameterOrRef         `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	RequestBody  *RequestBody              `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
+	Responses    Responses                 `json:"responses,omitempty" yaml:"responses,omitempty"`
+	Callbacks    map[string]*CallbackOrRef `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
+	Deprecated   bool                      `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Servers      []*Server                 `json:"servers,omitempty" yaml:"servers,omitempty"`
+	Security     []*SecurityRequirement    `json:"security" yaml:"security"`
+	XCodeSamples []*XCodeSample            `json:"x-codeSamples,omitempty" yaml:"x-codeSamples,omitempty"`
+	XInternal    bool                      `json:"x-internal,omitempty" yaml:"x-internal,omitempty"`
 }
 
 // A workaround for missing omitnil functionality.
 // Explicitely omit the Security field from marshaling when it is nil, but not when empty.
 type operationNilOmitted struct {
-	Tags         []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Summary      string            `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description  string            `json:"description,omitempty" yaml:"description,omitempty"`
-	ID           string            `json:"operationId,omitempty" yaml:"operationId,omitempty"`
-	Parameters   []*ParameterOrRef `json:"parameters,omitempty" yaml:"parameters,omitempty"`
-	RequestBody  *RequestBody      `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
-	Responses    Responses         `json:"responses,omitempty" yaml:"responses,omitempty"`
-	Deprecated   bool              `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
-	Servers      []*Server         `json:"servers,omitempty" yaml:"servers,omitempty"`
-	XCodeSamples []*XCodeSample    `json:"x-codeSamples,omitempty" yaml:"x-codeSamples,omitempty"`
-	XInternal    bool              `json:"x-internal,omitempty" yaml:"x-internal,omitempty"`
+	Tags         []string                  `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Summary      string                    `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description  string                    `json:"description,omitempty" yaml:"description,omitempty"`
+	ExternalDocs *ExternalDocs             `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
+	ID           string                    `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Parameters   []*ParameterOrRef         `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	RequestBody  *RequestBody              `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
+	Responses    Responses                 `json:"responses,omitempty" yaml:"responses,omitempty"`
+	Callbacks    map[string]*CallbackOrRef `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
+	Deprecated   bool                      `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Servers      []*Server                 `json:"servers,omitempty" yaml:"servers,omitempty"`
+	XCodeSamples []*XCodeSample            `json:"x-codeSamples,omitempty" yaml:"x-codeSamples,omitempty"`
+	XInternal    bool                      `json:"x-internal,omitempty" yaml:"x-internal,omitempty"`
 }
 
 // MarshalYAML implements yaml.Marshaler for Operation.
@@ -243,15 +323,46 @@ func omitOperationNilFields(o *Operation) *operationNilOmitted {
 		Tags:         o.Tags,
 		Summary:      o.Summary,
 		Description:  o.Description,
+		ExternalDocs: o.ExternalDocs,
 		ID:           o.ID,
 		Parameters:   o.Parameters,
 		RequestBody:  o.RequestBody,
 		Responses:    o.Responses,
+		Callbacks:    o.Callbacks,
 		Deprecated:   o.Deprecated,
 		Servers:      o.Servers,
 		XCodeSamples: o.XCodeSamples,
 		XInternal:    o.XInternal,
 	}
+}
+
+// Callback represents a map of possible out-of-band callbacks
+// related to the parent operation. Keys are runtime expressions
+// that are evaluated against the parent operation request and
+// response.
+type Callback map[string]*PathItem
+
+// CallbackOrRef represents a Callback that can be inlined
+// or referenced in the API description.
+type CallbackOrRef struct {
+	*Reference
+	Callback Callback
+}
+
+// MarshalYAML implements yaml.Marshaler for CallbackOrRef.
+func (cor *CallbackOrRef) MarshalYAML() (interface{}, error) {
+	if cor.Callback != nil {
+		return cor.Callback, nil
+	}
+	return cor.Reference, nil
+}
+
+// MarshalJSON implements json.Marshaler for CallbackOrRef.
+func (cor *CallbackOrRef) MarshalJSON() ([]byte, error) {
+	if cor.Callback != nil {
+		return json.Marshal(cor.Callback)
+	}
+	return json.Marshal(cor.Reference)
 }
 
 // Responses represents a container for the expected responses
@@ -274,6 +385,14 @@ func (ror *ResponseOrRef) MarshalYAML() (interface{}, error) {
 	return ror.Reference, nil
 }
 
+// MarshalJSON implements json.Marshaler for ResponseOrRef.
+func (ror *ResponseOrRef) MarshalJSON() ([]byte, error) {
+	if ror.Response != nil {
+		return json.Marshal(ror.Response)
+	}
+	return json.Marshal(ror.Reference)
+}
+
 // Response describes a single response from an API.
 type Response struct {
 	// Description is required per the specification,
@@ -281,6 +400,41 @@ type Response struct {
 	Description string                     `json:"description" yaml:"description"`
 	Headers     map[string]*HeaderOrRef    `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Content     map[string]*MediaTypeOrRef `json:"content,omitempty" yaml:"content,omitempty"`
+	Links       map[string]*LinkOrRef      `json:"links,omitempty" yaml:"links,omitempty"`
+}
+
+// Link represents a possible design-time link for a response.
+// See: https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.3.md#link-object
+type Link struct {
+	OperationRef string                 `json:"operationRef,omitempty" yaml:"operationRef,omitempty"`
+	OperationID  string                 `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	RequestBody  interface{}            `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
+	Description  string                 `json:"description,omitempty" yaml:"description,omitempty"`
+	Server       *Server                `json:"server,omitempty" yaml:"server,omitempty"`
+}
+
+// LinkOrRef represents a Link that can be inlined
+// or referenced in the API description.
+type LinkOrRef struct {
+	*Link
+	*Reference
+}
+
+// MarshalYAML implements yaml.Marshaler for LinkOrRef.
+func (lor *LinkOrRef) MarshalYAML() (interface{}, error) {
+	if lor.Link != nil {
+		return lor.Link, nil
+	}
+	return lor.Reference, nil
+}
+
+// MarshalJSON implements json.Marshaler for LinkOrRef.
+func (lor *LinkOrRef) MarshalJSON() ([]byte, error) {
+	if lor.Link != nil {
+		return json.Marshal(lor.Link)
+	}
+	return json.Marshal(lor.Reference)
 }
 
 // HeaderOrRef represents a Header that can be inlined
@@ -305,6 +459,15 @@ type Header struct {
 	Deprecated      bool         `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
 	AllowEmptyValue bool         `json:"allowEmptyValue,omitempty" yaml:"allowEmptyValue,omitempty"`
 	Schema          *SchemaOrRef `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Style           string       `json:"style,omitempty" yaml:"style,omitempty"`
+	// Explode is a pointer so that an explicit false value
+	// is preserved: omitting the field would default it to
+	// true for the 'form' style.
+	Explode       *bool                    `json:"explode,omitempty" yaml:"explode,omitempty"`
+	AllowReserved bool                     `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
+	Example       interface{}              `json:"example,omitempty" yaml:"example,omitempty"`
+	Examples      map[string]*ExampleOrRef `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Content       map[string]*MediaType    `json:"content,omitempty" yaml:"content,omitempty"`
 }
 
 // MediaTypeOrRef represents a MediaType that can be inlined
@@ -320,6 +483,14 @@ func (mtor *MediaTypeOrRef) MarshalYAML() (interface{}, error) {
 		return mtor.MediaType, nil
 	}
 	return mtor.Reference, nil
+}
+
+// MarshalJSON implements json.Marshaler for MediaTypeOrRef.
+func (mtor *MediaTypeOrRef) MarshalJSON() ([]byte, error) {
+	if mtor.MediaType != nil {
+		return json.Marshal(mtor.MediaType)
+	}
+	return json.Marshal(mtor.Reference)
 }
 
 // MediaType represents the type of a media.
@@ -356,17 +527,21 @@ type Example struct {
 // Encoding represents a single encoding definition
 // applied to a single schema property.
 type Encoding struct {
-	ContentType   string                  `json:"contentType,omitempty" yaml:"contentType,omitempty"`
-	Headers       map[string]*HeaderOrRef `json:"headers,omitempty" yaml:"headers,omitempty"`
-	Style         string                  `json:"style,omitempty" yaml:"style,omitempty"`
-	Explode       bool                    `json:"explode,omitempty" yaml:"explode,omitempty"`
-	AllowReserved bool                    `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
+	ContentType string                  `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+	Headers     map[string]*HeaderOrRef `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Style       string                  `json:"style,omitempty" yaml:"style,omitempty"`
+	// Explode is a pointer so that an explicit false value
+	// is preserved: omitting the field would default it to
+	// true for the 'form' style.
+	Explode       *bool `json:"explode,omitempty" yaml:"explode,omitempty"`
+	AllowReserved bool  `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
 }
 
 // Tag represents the metadata of a single tag.
 type Tag struct {
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Name         string        `json:"name" yaml:"name"`
+	Description  string        `json:"description,omitempty" yaml:"description,omitempty"`
+	ExternalDocs *ExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // SecuritySchemeOrRef represents a SecurityScheme that can be inlined

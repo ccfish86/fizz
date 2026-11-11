@@ -20,6 +20,10 @@ const (
 	formatTag            = "format"
 	deprecatedTag        = "deprecated"
 	descriptionTag       = "description"
+	readOnlyTag          = "readOnly"
+	writeOnlyTag         = "writeOnly"
+	discriminatorTag     = "discriminator"
+	xmlTag               = "xml"
 	componentsSchemaPath = "#/components/schemas/"
 )
 
@@ -117,6 +121,12 @@ func (g *Generator) SetSecurityRequirement(security []*SecurityRequirement) {
 // inside the operations of the specification.
 func (g *Generator) SetSecuritySchemes(security map[string]*SecuritySchemeOrRef) {
 	g.api.Components.SecuritySchemes = security
+}
+
+// SetExternalDocs sets the link to the external documentation
+// of the current specification.
+func (g *Generator) SetExternalDocs(docs *ExternalDocs) {
+	g.api.ExternalDocs = docs
 }
 
 // API returns a copy of the internal OpenAPI object.
@@ -278,6 +288,7 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 	op.XCodeSamples = info.XCodeSamples
 	op.Security = info.Security
 	op.XInternal = info.XInternal
+	op.ExternalDocs = info.ExternalDocs
 	if tag != "" {
 		op.Tags = append(op.Tags, tag)
 	}
@@ -317,6 +328,12 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 				resp.Examples,
 			); err != nil {
 				return nil, err
+			}
+			// Attach the links declared for this response.
+			if len(resp.Links) > 0 {
+				if ror, ok := op.Responses[resp.Code]; ok && ror.Response != nil {
+					ror.Response.Links = resp.Links
+				}
 			}
 		}
 	}
@@ -859,7 +876,7 @@ func (g *Generator) newSchemaFromStructField(sf reflect.StructField, required bo
 	// Wrap the reference in an allOf schema that carries the
 	// field-level overrides instead.
 	if sor.Reference != nil {
-		if !hasSchemaOverrides(sf, g.config) {
+		if !hasSchemaOverrides(sf, mediaType, g.config) {
 			return sor
 		}
 		schema = &Schema{
@@ -913,6 +930,18 @@ func (g *Generator) newSchemaFromStructField(sf reflect.StructField, required bo
 	// Deprecated.
 	// Consider invalid values as false.
 	schema.Deprecated, _ = strconv.ParseBool(sf.Tag.Get(deprecatedTag))
+	// Read-only and write-only properties.
+	// Consider invalid values as false.
+	schema.ReadOnly, _ = strconv.ParseBool(sf.Tag.Get(readOnlyTag))
+	schema.WriteOnly, _ = strconv.ParseBool(sf.Tag.Get(writeOnlyTag))
+	// Discriminator of a polymorphic schema.
+	if d := strings.TrimSpace(sf.Tag.Get(discriminatorTag)); d != "" {
+		schema.Discriminator = &Discriminator{PropertyName: d}
+	}
+	// XML metadata of the property, when the media type is XML.
+	if x := xmlFromStructField(sf, mediaType); x != nil {
+		schema.XML = x
+	}
 
 	// Update schema fields related to the JSON Validation
 	// spec based on the content of the validator tag.
@@ -1345,6 +1374,15 @@ func (g *Generator) updateSchemaValidation(schema *Schema, sf reflect.StructFiel
 			case "len", "max", "min", "eq", "gt", "gte", "lt", "lte":
 				n, err := strconv.Atoi(v)
 				if err != nil {
+					// Numeric bounds may be fractional values.
+					if f, ferr := strconv.ParseFloat(v, 64); ferr == nil && isNumber(ft) {
+						switch k {
+						case "max", "lte":
+							schema.Maximum = float64Ptr(f)
+						case "min", "gte":
+							schema.Minimum = float64Ptr(f)
+						}
+					}
 					continue
 				}
 				switch k {
@@ -1373,7 +1411,7 @@ func (g *Generator) error(err error) {
 
 // hasSchemaOverrides returns whether the given struct field declares
 // tags that override the schema generated from its type.
-func hasSchemaOverrides(sf reflect.StructField, conf *SpecGenConfig) bool {
+func hasSchemaOverrides(sf reflect.StructField, mediaType string, conf *SpecGenConfig) bool {
 	if sf.Tag.Get(conf.DefaultTag) != "" {
 		return true
 	}
@@ -1386,13 +1424,56 @@ func hasSchemaOverrides(sf reflect.StructField, conf *SpecGenConfig) bool {
 	if deprecated, _ := strconv.ParseBool(sf.Tag.Get(deprecatedTag)); deprecated {
 		return true
 	}
+	if readOnly, _ := strconv.ParseBool(sf.Tag.Get(readOnlyTag)); readOnly {
+		return true
+	}
+	if writeOnly, _ := strconv.ParseBool(sf.Tag.Get(writeOnlyTag)); writeOnly {
+		return true
+	}
 	if _, ok := sf.Tag.Lookup(formatTag); ok {
 		return true
 	}
 	if strings.TrimSpace(sf.Tag.Get("example")) != "" {
 		return true
 	}
+	if strings.TrimSpace(sf.Tag.Get(discriminatorTag)) != "" {
+		return true
+	}
+	if xmlFromStructField(sf, mediaType) != nil {
+		return true
+	}
 	return false
+}
+
+// xmlFromStructField returns the XML metadata of the given struct
+// field built from the standard 'xml' tag. The tag is only
+// considered for XML media types, since its syntax is specific
+// to the encoding/xml package.
+func xmlFromStructField(sf reflect.StructField, mediaType string) *XML {
+	if mediaTags[mediaType] != "xml" {
+		return nil
+	}
+	v, ok := sf.Tag.Lookup(xmlTag)
+	if !ok {
+		return nil
+	}
+	parts := strings.Split(strings.TrimSpace(v), ",")
+	// The field is ignored for XML payloads, and nested
+	// paths such as 'parent>child' cannot be expressed
+	// by the XML object of the specification.
+	if parts[0] == "-" || strings.Contains(parts[0], ">") {
+		return nil
+	}
+	x := &XML{Name: parts[0]}
+	for _, p := range parts[1:] {
+		if p == "attr" {
+			x.Attribute = true
+		}
+	}
+	if x.Name == "" && !x.Attribute {
+		return nil
+	}
+	return x
 }
 
 // fieldTagName returns the name of a struct field

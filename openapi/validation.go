@@ -8,7 +8,7 @@ import (
 // schema field based on the given type.
 func setSchemaMax(schema *Schema, max int, t reflect.Type) {
 	if isNumber(t) {
-		schema.Maximum = max
+		schema.Maximum = float64Ptr(float64(max))
 	} else if isString(t) {
 		if max >= 0 {
 			schema.MaxLength = max
@@ -28,7 +28,7 @@ func setSchemaMax(schema *Schema, max int, t reflect.Type) {
 // schema field based on the given type.
 func setSchemaMin(schema *Schema, min int, t reflect.Type) {
 	if isNumber(t) {
-		schema.Minimum = min
+		schema.Minimum = float64Ptr(float64(min))
 	} else if isString(t) {
 		if min >= 0 {
 			schema.MinLength = min
@@ -62,6 +62,9 @@ func setSchemaLen(schema *Schema, len int, t reflect.Type) {
 	setSchemaMax(schema, len, t)
 	setSchemaMin(schema, len, t)
 }
+
+// float64Ptr returns a pointer to the given value.
+func float64Ptr(v float64) *float64 { return &v }
 
 // isString returns whether the given reflect type represents a string.
 func isString(typ reflect.Type) bool { return typ.Kind() == reflect.String }

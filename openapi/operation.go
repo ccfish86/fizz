@@ -9,6 +9,7 @@ type OperationInfo struct {
 	Headers           []*ResponseHeader
 	Summary           string
 	Description       string
+	ExternalDocs      *ExternalDocs
 	Deprecated        bool
 	InputModel        interface{}
 	Responses         []*OperationResponse
@@ -34,6 +35,7 @@ type OperationResponse struct {
 	Description string
 	Model       interface{}
 	Headers     []*ResponseHeader
+	Links       map[string]*LinkOrRef
 	Example     interface{}
 	Examples    map[string]interface{}
 }
