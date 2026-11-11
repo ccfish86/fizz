@@ -18,7 +18,8 @@
             "type": "object",
             "additionalProperties": {
                 "$ref": "#/components/schemas/Y"
-            }
+            },
+            "nullable": true
         },
         "N": {
             "type": "object",

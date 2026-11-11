@@ -419,8 +419,11 @@ func TestNewSchemaFromEnumField(t *testing.T) {
 		{"E", []interface{}{"g", "h", "i"}, true},
 		{"F", []interface{}{"j", "k", "l"}, true},
 		{"G", []interface{}{"m", "n", "o"}, false},
-		{"H", []interface{}{"p", "q", "r"}, false},
-		{"I", []interface{}{7.0, 8.1, 9.2}, false},
+		// Multiple levels of indirection do not prevent the
+		// field from being recognized as a slice, hence the
+		// enum applies to the items of the array.
+		{"H", []interface{}{"p", "q", "r"}, true},
+		{"I", []interface{}{7.0, 8.1, 9.2}, true},
 	}
 
 	typ := reflect.TypeOf(T{})

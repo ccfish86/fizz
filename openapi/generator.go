@@ -1000,8 +1000,17 @@ func (g *Generator) newSchemaFromType(t reflect.Type, mediaType string) *SchemaO
 	}
 	if dt == TypeComplex {
 		switch t.Kind() {
-		case reflect.Slice, reflect.Array, reflect.Map:
-			return g.buildSchemaRecursive(t, mediaType)
+		case reflect.Ptr, reflect.Slice, reflect.Array, reflect.Map:
+			// The type is a pointer, a map, a slice or an array.
+			// buildSchemaRecursive dereferences pointers and
+			// builds the schema of the underlying type.
+			sor := g.buildSchemaRecursive(t, mediaType)
+			// A reference to a component cannot carry the nullable
+			// property, which is consistent with a pointer to struct.
+			if sor != nil && sor.Schema != nil && nullable {
+				sor.Schema.Nullable = true
+			}
+			return sor
 		case reflect.Struct:
 			return g.newSchemaFromStruct(t, mediaType)
 		}

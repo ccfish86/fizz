@@ -8,6 +8,7 @@ import (
 
 	"github.com/ccfish86/gadgeto/tonic"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v2"
 )
 
 // TestOperationIDMustBeUnique tests that an operation ID
@@ -169,4 +170,59 @@ func TestAllOfMarshaledAsArray(t *testing.T) {
 	b, err := json.Marshal(s)
 	assert.NoError(t, err)
 	assert.Equal(t, `{"allOf":[{"$ref":"#/components/schemas/Foo"}]}`, string(b))
+}
+
+// TestSchemaFromMultiLevelPointer tests that multiple levels of
+// indirection do not degrade composite types to primitives.
+func TestSchemaFromMultiLevelPointer(t *testing.T) {
+	g := gen(t)
+
+	// Pointer to pointer to slice.
+	sor := g.newSchemaFromType(reflect.PtrTo(reflect.PtrTo(reflect.TypeOf([]string{}))), tonic.MediaType())
+	assert.NotNil(t, sor)
+	assert.Equal(t, "array", sor.Type)
+	assert.True(t, sor.Nullable)
+	assert.NotNil(t, sor.Items)
+	assert.Equal(t, "string", sor.Items.Type)
+
+	// Pointer to map.
+	sor = g.newSchemaFromType(reflect.PtrTo(reflect.TypeOf(map[string]int{})), tonic.MediaType())
+	assert.NotNil(t, sor)
+	assert.Equal(t, "object", sor.Type)
+	assert.True(t, sor.Nullable)
+	assert.NotNil(t, sor.AdditionalProperties)
+
+	// Pointer to slice.
+	sor = g.newSchemaFromType(reflect.PtrTo(reflect.TypeOf([]string{})), tonic.MediaType())
+	assert.NotNil(t, sor)
+	assert.Equal(t, "array", sor.Type)
+	assert.True(t, sor.Nullable)
+
+	// Pointer to pointer to struct still yields a reference
+	// to the component of the struct.
+	type multiPointerStruct struct {
+		A string `json:"a"`
+	}
+	sor = g.newSchemaFromType(reflect.PtrTo(reflect.PtrTo(reflect.TypeOf(multiPointerStruct{}))), tonic.MediaType())
+	assert.NotNil(t, sor)
+	assert.NotNil(t, sor.Reference)
+}
+
+// TestOAuthFlowScopes tests that the mandatory scopes property
+// of an OAuth flow is always marshaled, even when empty.
+func TestOAuthFlowScopes(t *testing.T) {
+	flow := OAuthFlow{TokenURL: "https://example.com/token"}
+
+	b, err := json.Marshal(flow)
+	assert.NoError(t, err)
+	assert.Equal(t, `{"tokenUrl":"https://example.com/token","scopes":{}}`, string(b))
+
+	flow.Scopes = map[string]string{"read:pets": "read your pets"}
+	b, err = json.Marshal(&flow)
+	assert.NoError(t, err)
+	assert.Equal(t, `{"tokenUrl":"https://example.com/token","scopes":{"read:pets":"read your pets"}}`, string(b))
+
+	y, err := yaml.Marshal(OAuthFlow{TokenURL: "https://example.com/token"})
+	assert.NoError(t, err)
+	assert.Contains(t, string(y), "scopes: {}")
 }
