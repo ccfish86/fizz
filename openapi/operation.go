@@ -3,19 +3,22 @@ package openapi
 // OperationInfo represents the informations of an operation
 // that will be used when generating the OpenAPI specification.
 type OperationInfo struct {
-	ID                string
-	StatusCode        int
-	StatusDescription string
-	Headers           []*ResponseHeader
-	Summary           string
-	Description       string
-	ExternalDocs      *ExternalDocs
-	Deprecated        bool
-	InputModel        interface{}
-	Responses         []*OperationResponse
-	Security          []*SecurityRequirement
-	XCodeSamples      []*XCodeSample
-	XInternal         bool
+	ID                  string
+	StatusCode          int
+	StatusDescription   string
+	Headers             []*ResponseHeader
+	Summary             string
+	Description         string
+	ExternalDocs        *ExternalDocs
+	Deprecated          bool
+	InputModel          interface{}
+	RequestBodyRequired *bool
+	Responses           []*OperationResponse
+	Security            []*SecurityRequirement
+	Servers             []*Server
+	Callbacks           map[string]*CallbackOrRef
+	XCodeSamples        []*XCodeSample
+	XInternal           bool
 }
 
 // ResponseHeader represents a single header that

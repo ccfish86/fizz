@@ -225,20 +225,24 @@ type MyHandlerParams struct {
 
 You can use additional tags. Some will be interpreted by *tonic*, others will be exclusively used to enrich the *OpenAPI* specification.
 
-| name          | description                                                                                                                                                                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default`     | *tonic* will bind this value if none was passed with the request. This should not be used if a field is also required. Read the [documentation](https://swagger.io/docs/specification/describing-parameters/) (section _Common Mistakes_) for more informations about this behaviour. |
-| `description` | Add a description of the field in the spec.                                                                                                                                                                                                                                           |
-| `deprecated`  | Indicates if the field is deprecated. Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false.                                                                                                                    |
-| `enum`        | A coma separated list of acceptable values for the parameter.                                                                                                                                                                                                                         |
-| `example`     | An example value to be used in OpenAPI specification. See [section below](#Providing-Examples-for-Custom-Types) for the demonstration on how to provide example for custom types.                                                                                                     |
-| `format`      | Override the format of the field in the specification. Read the [documentation](https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#dataTypeFormat) for more informations.                                                                                     |
-| `validate`    | Field validation rules. Read the [documentation](https://godoc.org/gopkg.in/go-playground/validator.v8) for more informations.                                                                                                                                                        |
-| `explode`     | Specifies whether arrays should generate separate parameters for each array item or object property (limited to query parameters with *form* style). Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false.     |
-| `readOnly`    | Marks the field as read-only: it may be sent in responses but must not be sent in requests. Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false.                                                            |
-| `writeOnly`   | Marks the field as write-only: it may be sent in requests but must not be returned in responses. Accepted values are the same as for `readOnly`.                                                                                                                                      |
-| `discriminator` | Name of the property that discriminates the polymorphic type of the field. The schema of the field is wrapped in an `allOf` schema that carries the discriminator.                                                                                                                 |
-| `xml`         | XML metadata of the field, used when the media type is XML. Follows the `encoding/xml` syntax; the `name` and `attr` options are supported (e.g. `xml:"name,attr"`).                                                                                                                |
+| name | description |
+| --- | --- |
+| `default` | *tonic* will bind this value if none was passed with the request. This should not be used if a field is also required. Read the [documentation](https://swagger.io/docs/specification/describing-parameters/) (section _Common Mistakes_) for more informations about this behaviour. |
+| `description` | Add a description of the field in the spec. |
+| `deprecated` | Indicates if the field is deprecated. Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false. |
+| `enum` | A coma separated list of acceptable values for the parameter. |
+| `example` | An example value to be used in OpenAPI specification. See [section below](#Providing-Examples-for-Custom-Types) for the demonstration on how to provide example for custom types. |
+| `format` | Override the format of the field in the specification. Read the [documentation](https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#dataTypeFormat) for more informations. |
+| `validate` | Field validation rules. Read the [documentation](https://godoc.org/gopkg.in/go-playground/validator.v8) for more informations. Numeric bounds may be fractional values. |
+| `explode` | Specifies whether arrays should generate separate parameters for each array item or object property. Applies to query parameters with *form* style, and to the parts of a form based request body. Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false. |
+| `contentType` | Content type of a single part of a form based request body (*multipart* or *urlencoded*). Generates the `contentType` of the corresponding encoding object. |
+| `readOnly` | Marks the field as read-only: it may be sent in responses but must not be sent in requests. Accepted values are `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`. Invalid value are considered to be false. |
+| `writeOnly` | Marks the field as write-only: it may be sent in requests but must not be returned in responses. Accepted values are the same as for `readOnly`. |
+| `discriminator` | Name of the property that discriminates the polymorphic type of the field. The schema of the field is wrapped in an `allOf` schema that carries the discriminator. |
+| `oneOf` | A coma separated list of schema names, or full references such as `#/components/schemas/Dog`, describing the alternatives of the field. The referenced components must be registered, see [manual registration](#manual-registration). |
+| `anyOf` | Same as `oneOf`, but the value may match any number of the given schemas. |
+| `not` | Name or full reference of a schema that the value must not match. |
+| `xml` | XML metadata of the field, used when the media type is XML. Follows the `encoding/xml` syntax; the `name` and `attr` options are supported (e.g. `xml:"name,attr"`). |
 
 ### JSON/XML
 
@@ -348,6 +352,24 @@ Implements the `openapi.Typer` interface on your types.
 func (*T) TypeName() string { return "OverridedName" }
 ```
 **WARNING:** You **MUST** not rely on the method receiver to return the name, because the method will be called on a new instance created by the generator with the `reflect` package.
+
+##### Manual registration
+
+Schemas that are not referenced by any handler, as well as all the reusable objects of the specification, can be registered explicitly.
+```go
+f := fizz.New()
+g := f.Generator()
+g.AddSchema("Widget", Widget{})
+g.AddResponse("NotFound", &openapi.Response{Description: "Resource not found"})
+g.AddParameter("Limit", &openapi.Parameter{Name: "limit", In: "query"})
+g.AddHeader("RateLimit", &openapi.Header{Description: "Calls per minute"})
+g.AddExample("Widget", &openapi.Example{Summary: "A widget"})
+g.AddRequestBody("WidgetBody", &openapi.RequestBody{Content: content})
+g.AddLink("WidgetLink", &openapi.Link{OperationID: "getWidget"})
+g.AddCallback("WidgetCallback", callbacks)
+g.AddSecurityScheme("Bearer", &openapi.SecurityScheme{Type: "http", Scheme: "bearer"})
+```
+Each method returns an error if the name is already used. The components registered with `AddSchema` can be referenced by name from the `oneOf`, `anyOf` and `not` tags.
 
 #### Custom schemas
 

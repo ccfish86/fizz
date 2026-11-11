@@ -24,6 +24,10 @@ const (
 	writeOnlyTag         = "writeOnly"
 	discriminatorTag     = "discriminator"
 	xmlTag               = "xml"
+	oneOfTag             = "oneOf"
+	anyOfTag             = "anyOf"
+	notTag               = "not"
+	contentTypeTag       = "contentType"
 	componentsSchemaPath = "#/components/schemas/"
 )
 
@@ -127,6 +131,147 @@ func (g *Generator) SetSecuritySchemes(security map[string]*SecuritySchemeOrRef)
 // of the current specification.
 func (g *Generator) SetExternalDocs(docs *ExternalDocs) {
 	g.api.ExternalDocs = docs
+}
+
+// AddSchema registers a schema component generated from the given
+// Go type under the given name, and returns a reference to it.
+// If the type is already registered in the components under a name
+// inferred from the type, the schema is shared by both names.
+func (g *Generator) AddSchema(name string, t interface{}) (*SchemaOrRef, error) {
+	if name == "" {
+		return nil, errors.New("schema name is empty")
+	}
+	if t == nil {
+		return nil, errors.New("missing schema type")
+	}
+	if _, ok := g.api.Components.Schemas[name]; ok {
+		return nil, fmt.Errorf("schema %q already exists", name)
+	}
+	typ := reflect.TypeOf(t)
+	sor := g.newSchemaFromType(typ, tonic.MediaType())
+	if sor == nil {
+		return nil, fmt.Errorf("cannot generate a schema for type %s", typ)
+	}
+	// The schema of an unnamed type is inlined, while the schema of
+	// a named type is registered under the name inferred from the
+	// type. In both cases, register it under the requested name.
+	schema := sor.Schema
+	if sor.Reference != nil {
+		schema = g.resolveSchema(sor)
+	}
+	if schema == nil {
+		return nil, fmt.Errorf("cannot generate a schema for type %s", typ)
+	}
+	g.api.Components.Schemas[name] = &SchemaOrRef{Schema: schema}
+
+	return &SchemaOrRef{Reference: &Reference{Ref: componentsSchemaPath + name}}, nil
+}
+
+// addComponent registers the component v in m under the given name.
+// The map is initialized lazily, because the components of the
+// specification may be left empty until the first component is added.
+func addComponent[T any](m map[string]T, name string, v T) (map[string]T, error) {
+	if name == "" {
+		return m, errors.New("component name is empty")
+	}
+	if _, ok := m[name]; ok {
+		return m, fmt.Errorf("component %q already exists", name)
+	}
+	if m == nil {
+		m = make(map[string]T)
+	}
+	m[name] = v
+
+	return m, nil
+}
+
+// AddResponse registers a response component under the given name.
+func (g *Generator) AddResponse(name string, r *Response) error {
+	if r == nil {
+		return errors.New("missing response")
+	}
+	m, err := addComponent(g.api.Components.Responses, name, &ResponseOrRef{Response: r})
+	g.api.Components.Responses = m
+
+	return err
+}
+
+// AddParameter registers a parameter component under the given name.
+func (g *Generator) AddParameter(name string, p *Parameter) error {
+	if p == nil {
+		return errors.New("missing parameter")
+	}
+	m, err := addComponent(g.api.Components.Parameters, name, &ParameterOrRef{Parameter: p})
+	g.api.Components.Parameters = m
+
+	return err
+}
+
+// AddHeader registers a header component under the given name.
+func (g *Generator) AddHeader(name string, h *Header) error {
+	if h == nil {
+		return errors.New("missing header")
+	}
+	m, err := addComponent(g.api.Components.Headers, name, &HeaderOrRef{Header: h})
+	g.api.Components.Headers = m
+
+	return err
+}
+
+// AddExample registers an example component under the given name.
+func (g *Generator) AddExample(name string, e *Example) error {
+	if e == nil {
+		return errors.New("missing example")
+	}
+	m, err := addComponent(g.api.Components.Examples, name, &ExampleOrRef{Example: e})
+	g.api.Components.Examples = m
+
+	return err
+}
+
+// AddRequestBody registers a request body component under the given name.
+func (g *Generator) AddRequestBody(name string, r *RequestBody) error {
+	if r == nil {
+		return errors.New("missing request body")
+	}
+	m, err := addComponent(g.api.Components.RequestBodies, name, &RequestBodyOrRef{RequestBody: r})
+	g.api.Components.RequestBodies = m
+
+	return err
+}
+
+// AddLink registers a link component under the given name.
+func (g *Generator) AddLink(name string, l *Link) error {
+	if l == nil {
+		return errors.New("missing link")
+	}
+	m, err := addComponent(g.api.Components.Links, name, &LinkOrRef{Link: l})
+	g.api.Components.Links = m
+
+	return err
+}
+
+// AddCallback registers a callback component under the given name.
+func (g *Generator) AddCallback(name string, c Callback) error {
+	if c == nil {
+		return errors.New("missing callback")
+	}
+	m, err := addComponent(g.api.Components.Callbacks, name, &CallbackOrRef{Callback: c})
+	g.api.Components.Callbacks = m
+
+	return err
+}
+
+// AddSecurityScheme registers a security scheme component under the
+// given name.
+func (g *Generator) AddSecurityScheme(name string, s *SecurityScheme) error {
+	if s == nil {
+		return errors.New("missing security scheme")
+	}
+	m, err := addComponent(g.api.Components.SecuritySchemes, name, &SecuritySchemeOrRef{SecurityScheme: s})
+	g.api.Components.SecuritySchemes = m
+
+	return err
 }
 
 // API returns a copy of the internal OpenAPI object.
@@ -244,6 +389,18 @@ func (g *Generator) AddTag(name, desc string) {
 	}
 }
 
+// SetTagExternalDocs sets the external documentation of an existing
+// tag, and returns false if no tag with the given name exists.
+func (g *Generator) SetTagExternalDocs(name string, docs *ExternalDocs) bool {
+	for _, tag := range g.api.Tags {
+		if tag != nil && tag.Name == name {
+			tag.ExternalDocs = docs
+			return true
+		}
+	}
+	return false
+}
+
 // AddOperation add a new operation to the OpenAPI specification
 // using the method and path of the route and the tonic
 // handler informations.
@@ -289,6 +446,8 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 	op.Security = info.Security
 	op.XInternal = info.XInternal
 	op.ExternalDocs = info.ExternalDocs
+	op.Servers = info.Servers
+	op.Callbacks = info.Callbacks
 	if tag != "" {
 		op.Tags = append(op.Tags, tag)
 	}
@@ -307,6 +466,11 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 		if err := g.setOperationParams(op, in, in, allowBody, path, requestMediaType); err != nil {
 			return nil, err
 		}
+	}
+	// A request body may be declared as required even when none
+	// of its properties is required.
+	if info.RequestBodyRequired != nil && op.RequestBody != nil {
+		op.RequestBody.Required = *info.RequestBodyRequired
 	}
 	// Generate the default response from the tonic
 	// handler return type. If the handler has no output
@@ -677,6 +841,9 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 			op.RequestBody.Content[requestMediaType].Schema.Properties[param.Name] = &SchemaOrRef{
 				Schema: param.Schema.Schema,
 			}
+			// Attach the encoding of the part when its field declares
+			// encoding related tags.
+			setRequestBodyEncoding(op.RequestBody.Content[requestMediaType], param.Name, sf, requestMediaType)
 		} else {
 			op.Parameters = append(op.Parameters, &ParameterOrRef{
 				Parameter: param,
@@ -748,8 +915,44 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 		if schema != nil {
 			schema.Properties[fname] = sfs
 		}
+		// Attach the encoding of the property when its field declares
+		// encoding related tags.
+		setRequestBodyEncoding(op.RequestBody.Content[mt], fname, sf, mt)
 	}
 	return nil
+}
+
+// setRequestBodyEncoding attaches an encoding object to the media type
+// of a request body for the given property when the struct field
+// declares encoding related tags. Encoding objects only apply to form
+// based payloads, i.e. multipart and urlencoded payloads.
+func setRequestBodyEncoding(mt *MediaType, name string, sf reflect.StructField, mediaType string) {
+	if mt == nil || name == "" {
+		return
+	}
+	if !isMultipartFormData(mediaType) && mediaType != "application/x-www-form-urlencoded" {
+		return
+	}
+	enc := &Encoding{}
+	has := false
+	if ct := strings.TrimSpace(sf.Tag.Get(contentTypeTag)); ct != "" {
+		enc.ContentType = ct
+		has = true
+	}
+	if v, ok := sf.Tag.Lookup(tonic.ExplodeTag); ok {
+		// Ignore invalid values.
+		if b, err := strconv.ParseBool(v); err == nil {
+			enc.Explode = &b
+			has = true
+		}
+	}
+	if !has {
+		return
+	}
+	if mt.Encoding == nil {
+		mt.Encoding = make(map[string]*Encoding)
+	}
+	mt.Encoding[name] = enc
 }
 
 // newParameterFromField create a new operation parameter
@@ -941,6 +1144,19 @@ func (g *Generator) newSchemaFromStructField(sf reflect.StructField, required bo
 	// XML metadata of the property, when the media type is XML.
 	if x := xmlFromStructField(sf, mediaType); x != nil {
 		schema.XML = x
+	}
+	// Composition keywords. They reference other components by name,
+	// or using a full reference (starting with '#').
+	if v := strings.TrimSpace(sf.Tag.Get(oneOfTag)); v != "" {
+		schema.OneOf = schemaRefsFromTag(v)
+	}
+	if v := strings.TrimSpace(sf.Tag.Get(anyOfTag)); v != "" {
+		schema.AnyOf = schemaRefsFromTag(v)
+	}
+	if v := strings.TrimSpace(sf.Tag.Get(notTag)); v != "" {
+		if refs := schemaRefsFromTag(v); len(refs) > 0 {
+			schema.Not = refs[0]
+		}
 	}
 
 	// Update schema fields related to the JSON Validation
@@ -1439,6 +1655,15 @@ func hasSchemaOverrides(sf reflect.StructField, mediaType string, conf *SpecGenC
 	if strings.TrimSpace(sf.Tag.Get(discriminatorTag)) != "" {
 		return true
 	}
+	if strings.TrimSpace(sf.Tag.Get(oneOfTag)) != "" {
+		return true
+	}
+	if strings.TrimSpace(sf.Tag.Get(anyOfTag)) != "" {
+		return true
+	}
+	if strings.TrimSpace(sf.Tag.Get(notTag)) != "" {
+		return true
+	}
 	if xmlFromStructField(sf, mediaType) != nil {
 		return true
 	}
@@ -1474,6 +1699,27 @@ func xmlFromStructField(sf reflect.StructField, mediaType string) *XML {
 		return nil
 	}
 	return x
+}
+
+// schemaRefsFromTag returns a list of schema references built from a
+// comma-separated list of component names. An item that starts with
+// '#' or with an URL scheme is used as is, otherwise it is considered
+// to be the name of a schema in the components of the specification.
+func schemaRefsFromTag(v string) []*SchemaOrRef {
+	var refs []*SchemaOrRef
+	for _, name := range strings.Split(v, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !strings.HasPrefix(name, "#") &&
+			!strings.HasPrefix(name, "http://") &&
+			!strings.HasPrefix(name, "https://") {
+			name = componentsSchemaPath + name
+		}
+		refs = append(refs, &SchemaOrRef{Reference: &Reference{Ref: name}})
+	}
+	return refs
 }
 
 // fieldTagName returns the name of a struct field
