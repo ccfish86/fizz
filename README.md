@@ -263,6 +263,8 @@ To be able to make a difference between a missing value and the zero value of a 
 
 To explicitly ignore a parameter from the request body, use the tag `binding:"-"`.
 
+A parameter can also be excluded from the specification by setting the value of its location tag to `"-"`, i.e. `path:"-"`, `query:"-"`, `header:"-"` or `form:"-"`. Such fields are not documented as parameters nor added to the request body. This is useful to reuse a model type as an operation input while omitting fields that are computed by the server.
+
 Note that the *OpenAPI* generator will ignore request body parameters for the routes with a method that is one of `GET`, `DELETE` or `HEAD`.
    > GET, DELETE and HEAD are no longer allowed to have request body because it does not have defined semantics as per [RFC 7231](https://tools.ietf.org/html/rfc7231#section-4.3).
 	[*source*](https://swagger.io/docs/specification/describing-request-body/)
