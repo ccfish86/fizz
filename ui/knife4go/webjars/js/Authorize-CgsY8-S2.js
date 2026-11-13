@@ -1,0 +1,1 @@
+import{_ as t}from"./doc-D4mARDbN.js";import"./vendor-vue-B9foJKPF.js";import"./vendor-antd-r9DXLsA-.js";import"./vendor-marked-Br4yleP7.js";import"./vendor-lodash-BcZsTO3x.js";const r={name:"Authorize"};function o(e,n,p,i,s,c){return null}const d=t(r,[["render",o]]);export{d as default};
