@@ -796,6 +796,16 @@ func (g *Generator) paramyByLocation(p1, p2 *ParameterOrRef) bool {
 func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx int, allowBody bool, requestMediaType string) error {
 	sf := t.Field(idx)
 
+	// A field explicitly omitted from every location - via a parameter
+	// location tag whose value is "-" (e.g. `query:"-"`, `path:"-"`,
+	// `header:"-"`, `form:"-"`) or via `binding:"-"` - must not appear
+	// in the specification at all, whether as a parameter or a request
+	// body property. Without this check a `query:"-"` tag would be
+	// treated as an ordinary parameter literally named "-".
+	if g.isFieldOmitted(sf) {
+		return nil
+	}
+
 	param, location, err := g.newParameterFromField(idx, t, requestMediaType)
 	if err != nil {
 		return err
@@ -1056,6 +1066,34 @@ func (g *Generator) paramLocation(f reflect.StructField, parameterLocations []st
 		}
 	}
 	return parameterLocations[p], nil
+}
+
+// isFieldOmitted reports whether a struct field is explicitly excluded
+// from the generated specification. It honors "-" as the value of any
+// parameter location tag (path/query/header/form) as well as the
+// binding tag. Such fields are computed by the server or otherwise not
+// part of the request, and must not be documented.
+func (g *Generator) isFieldOmitted(sf reflect.StructField) bool {
+	if sf.Tag.Get("binding") == "-" {
+		return true
+	}
+	keys := []string{
+		g.config.PathLocationTag,
+		g.config.QueryLocationTag,
+		g.config.HeaderLocationTag,
+		g.config.FormLocationTag,
+	}
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if v, ok := sf.Tag.Lookup(k); ok {
+			if strings.TrimSpace(strings.Split(v, ",")[0]) == "-" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // newSchemaFromStructField returns a new Schema builded

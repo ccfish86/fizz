@@ -226,3 +226,47 @@ func TestOAuthFlowScopes(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, string(y), "scopes: {}")
 }
+
+// TestOmittedFieldWithDashLocationTag tests that a field whose parameter
+// location tag value is "-" (e.g. `query:"-" json:"-"`) is fully excluded
+// from the specification instead of being documented as a parameter
+// literally named "-". This reproduces the reported regression.
+func TestOmittedFieldWithDashLocationTag(t *testing.T) {
+	type in struct {
+		ID       int64  `path:"id"`
+		Internal string `query:"-" json:"-"`
+		Secret   string `header:"-"`
+	}
+
+	g := gen(t)
+	op, err := g.AddOperation("/del/:id", "DELETE", "", tonic.MediaType(), tonic.MediaType(),
+		reflect.TypeOf(&in{}), nil, &OperationInfo{ID: "DeleteItem", StatusCode: 204})
+	assert.NoError(t, err)
+
+	// Only the real path parameter must be documented.
+	assert.Len(t, op.Parameters, 1)
+	for _, p := range op.Parameters {
+		assert.NotEqual(t, "-", p.Name)
+	}
+	assert.Equal(t, "id", op.Parameters[0].Name)
+	assert.Equal(t, "path", op.Parameters[0].In)
+}
+
+// TestOmittedFieldWithDashValueAndOptions tests that the "-" value is
+// detected even when the tag carries comma separated options, and that
+// it also applies to the form location used by multipart payloads.
+func TestOmittedFieldWithDashValueAndOptions(t *testing.T) {
+	type in struct {
+		A string `query:"-,omitempty"`
+		B string `form:"-"`
+		C string `query:"kept"`
+	}
+
+	g := gen(t)
+	op := &Operation{Responses: make(Responses)}
+	err := g.setOperationParams(op, reflect.TypeOf(in{}), reflect.TypeOf(in{}), false, "/x", tonic.MediaType())
+	assert.NoError(t, err)
+
+	assert.Len(t, op.Parameters, 1)
+	assert.Equal(t, "kept", op.Parameters[0].Name)
+}
