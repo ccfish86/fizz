@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/ccfish86/gadgeto/tonic"
-	"github.com/gofrs/uuid"
 )
 
 const (
@@ -46,14 +46,19 @@ var mediaTags = map[string]string{
 }
 
 // Generator is an OpenAPI 3 generator.
+// A generator is not safe for concurrent use: operations and
+// components must be registered before the specification is served.
 type Generator struct {
 	api           *OpenAPI
 	config        *SpecGenConfig
-	schemaTypes   map[reflect.Type]struct{}
+	schemaTypes   map[reflect.Type]string
+	schemaNames   map[string]reflect.Type
 	typeNames     map[reflect.Type]string
+	typeNameCache map[reflect.Type]string
 	dataTypes     map[reflect.Type]*OverridedDataType
 	operationsIDS map[string]struct{}
 	errors        []error
+	warnings      []error
 	fullNames     bool
 	sortParams    bool
 	sortTags      bool
@@ -78,8 +83,10 @@ func NewGenerator(conf *SpecGenConfig) (*Generator, error) {
 			Paths:      make(Paths),
 			Components: components,
 		},
-		schemaTypes:   make(map[reflect.Type]struct{}),
+		schemaTypes:   make(map[reflect.Type]string),
+		schemaNames:   make(map[string]reflect.Type),
 		typeNames:     make(map[reflect.Type]string),
+		typeNameCache: make(map[reflect.Type]string),
 		dataTypes:     make(map[reflect.Type]*OverridedDataType),
 		operationsIDS: make(map[string]struct{}),
 		fullNames:     true,
@@ -163,6 +170,7 @@ func (g *Generator) AddSchema(name string, t interface{}) (*SchemaOrRef, error) 
 		return nil, fmt.Errorf("cannot generate a schema for type %s", typ)
 	}
 	g.api.Components.Schemas[name] = &SchemaOrRef{Schema: schema}
+	g.schemaNames[name] = derefType(typ)
 
 	return &SchemaOrRef{Reference: &Reference{Ref: componentsSchemaPath + name}}, nil
 }
@@ -274,7 +282,9 @@ func (g *Generator) AddSecurityScheme(name string, s *SecurityScheme) error {
 	return err
 }
 
-// API returns a copy of the internal OpenAPI object.
+// API returns a shallow copy of the internal OpenAPI object.
+// The nested values, such as the paths and the components, are
+// shared with the generator.
 func (g *Generator) API() *OpenAPI {
 	cpy := *g.api
 	return &cpy
@@ -283,7 +293,14 @@ func (g *Generator) API() *OpenAPI {
 // Errors returns the errors thar occurred during
 // the generation of the specification.
 func (g *Generator) Errors() []error {
-	return g.errors
+	return append([]error(nil), g.errors...)
+}
+
+// Warnings returns the warnings that occurred during the generation
+// of the specification. Unlike errors, warnings do not prevent the
+// specification from being generated.
+func (g *Generator) Warnings() []error {
+	return append([]error(nil), g.warnings...)
 }
 
 // UseFullSchemaNames defines whether the generator should generates
@@ -295,6 +312,9 @@ func (g *Generator) Errors() []error {
 // Default to true.
 func (g *Generator) UseFullSchemaNames(b bool) {
 	g.fullNames = b
+	// The type names are derived from the package name, so the
+	// cached values must be discarded when the mode changes.
+	g.typeNameCache = make(map[reflect.Type]string)
 }
 
 // SetSortParams controls whether the generator should
@@ -408,9 +428,11 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 	if info == nil {
 		return nil, errors.New("missing operation info")
 	}
-	op := &Operation{
-		ID: uuid.Must(uuid.NewV4()).String(),
+	method = strings.ToUpper(method)
+	if !isSupportedMethod(method) {
+		return nil, fmt.Errorf("unsupported HTTP method %q", method)
 	}
+	op := &Operation{}
 	path = rewritePath(path)
 
 	// Ensure that the provided operation ID is unique.
@@ -423,11 +445,13 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 		}
 	}
 	// If a PathItem does not exists for this
-	// path, create a new one.
+	// path, create a new one. It is only registered in
+	// the specification once the operation has been
+	// successfully generated, so that a failure does not
+	// leave an empty path item behind.
 	item, ok := g.api.Paths[path]
 	if !ok {
 		item = new(PathItem)
-		g.api.Paths[path] = item
 	}
 	// An operation cannot be registered twice for the
 	// same method and path, silently overwriting the
@@ -502,6 +526,7 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 		}
 	}
 	setOperationBymethod(item, op, method)
+	g.api.Paths[path] = item
 	if info.ID != "" {
 		g.operationsIDS[info.ID] = struct{}{}
 	}
@@ -514,6 +539,16 @@ func (g *Generator) AddOperation(path, method, tag, requestMediaType, responseMe
 // an OpenAPI representation that use curly braces.
 func rewritePath(path string) string {
 	return ginPathParamRe.ReplaceAllString(path, "/{$1}")
+}
+
+// isSupportedMethod returns whether the given HTTP method can be
+// documented as an operation of a path item.
+func isSupportedMethod(method string) bool {
+	switch method {
+	case "GET", "PUT", "POST", "PATCH", "HEAD", "OPTIONS", "TRACE", "DELETE":
+		return true
+	}
+	return false
 }
 
 // operationByMethod returns the operation of item for the
@@ -568,8 +603,7 @@ func isResponseCodeRange(code string) bool {
 		return false
 	}
 	// First char must be 1, 2, 3, 4 or 5.
-	pre := code[0]
-	if pre < 49 || pre > 53 {
+	if code[0] < '1' || code[0] > '5' {
 		return false
 	}
 	// Last two chars are wildcard letter X.
@@ -694,11 +728,19 @@ func (g *Generator) setOperationParams(op *Operation, t, parent reflect.Type, al
 		if mt == "" {
 			mt = anyMediaType
 		}
-		sch := op.RequestBody.Content[mt].Schema
-		if sch != nil && !isMultipartFormData(requestMediaType) {
-			name := strings.Title(op.ID) + "Input"
-			g.api.Components.Schemas[name] = sch
-			op.RequestBody.Content[mt].Schema = &SchemaOrRef{Reference: &Reference{
+		// Sort the required properties once all the fields have
+		// been collected, instead of on each insertion.
+		for _, media := range op.RequestBody.Content {
+			if media != nil && media.Schema != nil && media.Schema.Schema != nil {
+				sort.Strings(media.Schema.Schema.Required)
+			}
+		}
+		content, ok := op.RequestBody.Content[mt]
+		if ok && content != nil && content.Schema != nil &&
+			content.Schema.Schema != nil && !isMultipartFormData(requestMediaType) {
+			name := g.requestBodyComponentName(op.ID, t)
+			g.api.Components.Schemas[name] = content.Schema
+			content.Schema = &SchemaOrRef{Reference: &Reference{
 				Ref: componentsSchemaPath + name,
 			}}
 		}
@@ -831,29 +873,26 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 				op.RequestBody = &RequestBody{
 					Content: make(map[string]*MediaType),
 				}
-				schema := &Schema{
-					Type:       "object",
-					Properties: make(map[string]*SchemaOrRef),
-				}
-				op.RequestBody.Content[requestMediaType] = &MediaType{
-					Schema: &SchemaOrRef{Schema: schema},
-				}
 			}
-			if _, ok := op.RequestBody.Content[requestMediaType]; !ok {
-				schema := &Schema{
-					Type:       "object",
-					Properties: make(map[string]*SchemaOrRef),
+			media, ok := op.RequestBody.Content[requestMediaType]
+			if !ok {
+				media = &MediaType{
+					Schema: &SchemaOrRef{Schema: &Schema{
+						Type:       "object",
+						Properties: make(map[string]*SchemaOrRef),
+					}},
 				}
-				op.RequestBody.Content[requestMediaType] = &MediaType{
-					Schema: &SchemaOrRef{Schema: schema},
-				}
+				op.RequestBody.Content[requestMediaType] = media
 			}
-			op.RequestBody.Content[requestMediaType].Schema.Properties[param.Name] = &SchemaOrRef{
-				Schema: param.Schema.Schema,
+			// Keep the reference of the part schema, if any, instead
+			// of inlining an empty schema. This preserves the link to
+			// the component describing a composite part.
+			if param.Schema != nil {
+				media.Schema.Properties[param.Name] = param.Schema
 			}
 			// Attach the encoding of the part when its field declares
 			// encoding related tags.
-			setRequestBodyEncoding(op.RequestBody.Content[requestMediaType], param.Name, sf, requestMediaType)
+			setRequestBodyEncoding(media, param.Name, sf, requestMediaType)
 		} else {
 			op.Parameters = append(op.Parameters, &ParameterOrRef{
 				Parameter: param,
@@ -900,6 +939,10 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 			schema = op.RequestBody.Content[mt].Schema.Schema
 		}
 		fname := fieldNameFromTag(sf, mediaTags[requestMediaType])
+		if fname == "" {
+			// Field has no name, skip it.
+			return nil
+		}
 
 		// Check if a field with the same name already exists.
 		if _, ok := schema.Properties[fname]; ok {
@@ -913,17 +956,20 @@ func (g *Generator) addStructFieldToOperation(op *Operation, t reflect.Type, idx
 			return nil
 		}
 
-		var required bool
 		// The required property of a field is not part of its
 		// own schema but specified in the parent schema.
-		if fname != "" && g.isStructFieldRequired(sf) {
-			required = true
-			schema.Required = append(schema.Required, fname)
-			sort.Strings(schema.Required)
-		}
+		required := g.isStructFieldRequired(sf)
 		sfs := g.newSchemaFromStructField(sf, required, fname, t, requestMediaType)
-		if schema != nil {
-			schema.Properties[fname] = sfs
+		if sfs == nil {
+			// The schema of the field cannot be generated,
+			// the error has already been reported.
+			return nil
+		}
+		schema.Properties[fname] = sfs
+		// The required list is sorted once all the fields
+		// have been collected.
+		if required {
+			schema.Required = append(schema.Required, fname)
 		}
 		// Attach the encoding of the property when its field declares
 		// encoding related tags.
@@ -1017,12 +1063,18 @@ func (g *Generator) newParameterFromField(idx int, t reflect.Type, mediaType str
 		Deprecated:  deprecated,
 		Schema:      g.newSchemaFromStructField(field, required, name, t, mediaType),
 	}
-	if field.Type.Kind() == reflect.Bool && location == g.config.QueryLocationTag {
+	// Dereference the field type so that pointer fields are
+	// documented like their value counterpart.
+	ft := field.Type
+	for ft.Kind() == reflect.Ptr {
+		ft = ft.Elem()
+	}
+	if ft.Kind() == reflect.Bool && location == g.config.QueryLocationTag {
 		p.AllowEmptyValue = true
 	}
 	// Style.
 	if location == g.config.QueryLocationTag {
-		if field.Type.Kind() == reflect.Slice || field.Type.Kind() == reflect.Array {
+		if ft.Kind() == reflect.Slice || ft.Kind() == reflect.Array {
 			explode := true // default
 			if t := field.Tag.Get(tonic.ExplodeTag); t != "" {
 				if v, err := strconv.ParseBool(t); err == nil { // ignore invalid values
@@ -1390,9 +1442,9 @@ func (g *Generator) newSchemaFromStruct(t reflect.Type, mediaType string) *Schem
 	// skip the schema generation to avoid a recursive loop.
 	// We're not returning directly a reference from the components,
 	// because there is no guarantee the generation is complete yet.
-	if _, ok := g.schemaTypes[t]; ok {
+	if registered, ok := g.schemaTypes[t]; ok {
 		return &SchemaOrRef{Reference: &Reference{
-			Ref: componentsSchemaPath + name,
+			Ref: componentsSchemaPath + registered,
 		}}
 	}
 	schema := &Schema{
@@ -1401,11 +1453,17 @@ func (g *Generator) newSchemaFromStruct(t reflect.Type, mediaType string) *Schem
 	}
 	// Register the type once before diving into
 	// the recursive hole if it has a name. Anonymous
-	// struct are all considered unique.
+	// struct are all considered unique. The name is
+	// disambiguated before the generation so that the
+	// nested references use the final name too.
 	if name != "" {
-		g.schemaTypes[t] = struct{}{}
+		name = g.allocateSchemaName(name, t)
+		g.schemaTypes[t] = name
 	}
 	schema = g.flattenStructSchema(t, t, schema, mediaType)
+	if len(schema.Required) > 1 {
+		sort.Strings(schema.Required)
+	}
 
 	sor := &SchemaOrRef{Schema: schema}
 
@@ -1421,6 +1479,47 @@ func (g *Generator) newSchemaFromStruct(t reflect.Type, mediaType string) *Schem
 	}
 	// Return an inlined schema for types with no name.
 	return sor
+}
+
+// allocateSchemaName returns the name under which the schema of the
+// type t is registered in the components. The inferred name is used
+// as is unless it is already used by another type: in that case, a
+// numbered suffix is appended and an error is reported, because the
+// generated references would otherwise silently point to the schema
+// of another type. This happens when full schema names are disabled
+// and two packages declare a type with the same name.
+func (g *Generator) allocateSchemaName(name string, t reflect.Type) string {
+	conflict := func(candidate string) bool {
+		if owner, ok := g.schemaNames[candidate]; ok {
+			return owner != t
+		}
+		// The name may have been registered by another API, such
+		// as AddSchema or the request body of an operation.
+		_, ok := g.api.Components.Schemas[candidate]
+		return ok
+	}
+	if !conflict(name) {
+		g.schemaNames[name] = t
+		return name
+	}
+	base := name
+	for i := 2; ; i++ {
+		candidate := base + strconv.Itoa(i)
+		if !conflict(candidate) {
+			name = candidate
+			break
+		}
+	}
+	g.warn(&TypeError{
+		Message: fmt.Sprintf(
+			"duplicate schema name %q for type %s, automatically registered as %q: use OverrideTypeName to choose a different name",
+			base, t, name,
+		),
+		Type: t,
+	})
+	g.schemaNames[name] = t
+
+	return name
 }
 
 // flattenStructSchema recursively flatten the embedded
@@ -1472,17 +1571,20 @@ func (g *Generator) flattenStructSchema(t, parent reflect.Type, schema *Schema, 
 			// Field has no name, skip it.
 			continue
 		}
-		var required bool
 		// The required property of a field is not part of its
 		// own schema but specified in the parent schema.
-		if fname != "" && g.isStructFieldRequired(f) {
-			required = true
-			schema.Required = append(schema.Required, fname)
-			sort.Strings(schema.Required)
-		}
+		required := g.isStructFieldRequired(f)
 		sfs := g.newSchemaFromStructField(f, required, fname, t, mediaType)
-		if sfs != nil {
-			schema.Properties[fname] = sfs
+		if sfs == nil {
+			// The schema of the field cannot be generated,
+			// the error has already been reported.
+			continue
+		}
+		schema.Properties[fname] = sfs
+		// The required list is sorted once all the fields
+		// have been collected.
+		if required {
+			schema.Required = append(schema.Required, fname)
 		}
 	}
 	return schema
@@ -1561,6 +1663,30 @@ func (g *Generator) typeName(t reflect.Type) string {
 	if name, ok := g.typeNames[t]; ok {
 		return name
 	}
+	// The name only depends on the type and the options of the
+	// generator, so it is computed once per type.
+	if name, ok := g.typeNameCache[t]; ok {
+		return name
+	}
+	name := g.computeTypeName(t)
+	g.typeNameCache[t] = name
+
+	return name
+}
+
+// derefType returns the type t without its pointer indirections.
+func derefType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
+}
+
+// computeTypeName returns the unique name of the given type,
+// which is the concatenation of the package name and the name
+// of the type, transformed to CamelCase without a dot separator
+// between the two parts.
+func (g *Generator) computeTypeName(t reflect.Type) string {
 	// Create a new instance of t's type and use a
 	// type assertion to check if it implements the
 	// Typer interface.
@@ -1572,19 +1698,104 @@ func (g *Generator) typeName(t reflect.Type) string {
 	}
 	name := t.String() // package.name.
 	sp := strings.Index(name, ".")
+	if sp < 0 {
+		// The type has no package part, keep its
+		// name as is.
+		return titleCase(name)
+	}
 	pkg := name[:sp]
+	typ := name[sp+1:]
 
 	// If the package is the main package, remove
 	// the package part from the name.
 	if pkg == "main" {
-		pkg = ""
+		return titleCase(typ)
 	}
-	typ := name[sp+1:]
-
 	if !g.fullNames {
-		return strings.Title(typ)
+		return titleCase(typ)
 	}
-	return strings.Title(pkg) + strings.Title(typ)
+	return titleCase(pkg) + titleCase(typ)
+}
+
+// requestBodyComponentName returns a unique name for the schema
+// generated from the request body of an operation. The name is
+// inferred from the operation ID, or from the type of the body
+// when the operation has no ID, and is suffixed with a number
+// when it collides with an existing component.
+func (g *Generator) requestBodyComponentName(id string, t reflect.Type) string {
+	base := strings.TrimSpace(id)
+	if base == "" {
+		base = g.typeName(t)
+	}
+	if base == "" {
+		base = "Anonymous"
+	}
+	name := titleCase(sanitizeComponentName(base)) + "Input"
+	if _, ok := g.api.Components.Schemas[name]; !ok {
+		return name
+	}
+	for i := 2; ; i++ {
+		candidate := name + strconv.Itoa(i)
+		if _, ok := g.api.Components.Schemas[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
+// sanitizeComponentName replaces the characters that are not
+// allowed in a component name by an underscore, so that the name
+// can safely be used in a reference.
+func sanitizeComponentName(name string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case 'a' <= r && r <= 'z',
+			'A' <= r && r <= 'Z',
+			'0' <= r && r <= '9',
+			r == '.', r == '-', r == '_':
+			return r
+		}
+		return '_'
+	}, name)
+}
+
+// titleCase upper-cases the first letter of each word in s. It is
+// a replacement for the deprecated strings.Title function, using
+// the same word boundaries.
+func titleCase(s string) string {
+	prev := ' '
+	return strings.Map(func(r rune) rune {
+		if isTitleSeparator(prev) {
+			prev = r
+			return unicode.ToTitle(r)
+		}
+		prev = r
+		return r
+	}, s)
+}
+
+// isTitleSeparator returns whether the given rune is a word
+// boundary for titleCase.
+func isTitleSeparator(r rune) bool {
+	// ASCII alphanumerics and underscore are not separators.
+	if r <= 0x7F {
+		switch {
+		case '0' <= r && r <= '9':
+			return false
+		case 'a' <= r && r <= 'z':
+			return false
+		case 'A' <= r && r <= 'Z':
+			return false
+		case r == '_':
+			return false
+		}
+		return true
+	}
+	// Letters and digits are not separators.
+	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		return false
+	}
+	// Otherwise, all we can do for now is treat spaces as separators.
+	return unicode.IsSpace(r)
 }
 
 // updateSchemaValidation fills the fields of the schema
@@ -1661,6 +1872,10 @@ func (g *Generator) updateSchemaValidation(schema *Schema, sf reflect.StructFiel
 
 func (g *Generator) error(err error) {
 	g.errors = append(g.errors, err)
+}
+
+func (g *Generator) warn(err error) {
+	g.warnings = append(g.warnings, err)
 }
 
 // hasSchemaOverrides returns whether the given struct field declares

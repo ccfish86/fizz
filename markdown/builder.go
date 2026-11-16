@@ -2,7 +2,6 @@ package markdown
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 
@@ -244,10 +243,14 @@ func (b *Builder) Table(table [][]string, align []TableAlignment) *Builder {
 	}
 	headerLen := len(table[0])
 
-	// Count max char len of each column.
+	// Count max char len of each column. Cells that overflow
+	// the number of columns defined by the header are ignored.
 	colsLens := make([]int, headerLen)
 	for x, line := range table {
 		for y := range line {
+			if y >= headerLen {
+				break
+			}
 			cl := max(charLen(table[x][y]), colsLens[y])
 			if cl < minCellSize {
 				colsLens[y] = minCellSize
@@ -257,6 +260,7 @@ func (b *Builder) Table(table [][]string, align []TableAlignment) *Builder {
 		}
 	}
 	sb := strings.Builder{}
+	cols := make([]string, headerLen)
 
 	for x, line := range table {
 		// Add the line separator just after
@@ -278,7 +282,6 @@ func (b *Builder) Table(table [][]string, align []TableAlignment) *Builder {
 		}
 		// Pad all the columns of the rows and
 		// join the values with the separator.
-		cols := make([]string, len(table[0]))
 		for y, cl := range colsLens {
 			var cell string
 			if y <= len(line)-1 {
@@ -318,11 +321,11 @@ func (b *Builder) writelnf(format string, a ...interface{}) *Builder {
 
 // charLen returns the number of caracters present in
 // the string s. A caracter is defined as:
-// - a sequence of runes that starts with a starter.
-// - a rune that does not modify or combine backwards with
-//   any other rune.
-// - followed by possibly empty sequence of non-starters,
-//   that is, runes that do (typically accents).
+//   - a sequence of runes that starts with a starter.
+//   - a rune that does not modify or combine backwards with
+//     any other rune.
+//   - followed by possibly empty sequence of non-starters,
+//     that is, runes that do (typically accents).
 func charLen(s string) int {
 	var (
 		ia  norm.Iter
@@ -365,9 +368,9 @@ func padSpaces(s string, length int, align TableAlignment) string {
 	case AlignRight:
 		return strings.Repeat(" ", length-sl) + s
 	case AlignCenter:
-		len := float64(length-sl) / float64(2)
-		pad := strings.Repeat(" ", int(math.Ceil(len/float64(1))))
-		return pad[:int(math.Floor(float64(len)))] + s + pad[:int(math.Ceil(float64(len)))]
+		pad := length - sl
+		left := pad / 2
+		return strings.Repeat(" ", left) + s + strings.Repeat(" ", pad-left)
 	default:
 		// AlignLeft.
 		return s + strings.Repeat(" ", length-sl)

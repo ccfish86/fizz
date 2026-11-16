@@ -110,6 +110,13 @@ func (f *Fizz) Errors() []error {
 	return f.gen.Errors()
 }
 
+// Warnings returns the warnings that may have occurred
+// during the spec generation. Unlike errors, warnings do not
+// prevent the specification from being generated.
+func (f *Fizz) Warnings() []error {
+	return f.gen.Warnings()
+}
+
 // Group creates a new group of routes.
 func (g *RouterGroup) Group(path, name, description string, handlers ...gin.HandlerFunc) *RouterGroup {
 	// Create the tag in the specification
